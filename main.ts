@@ -1,10 +1,10 @@
-import { App, debounce, Debouncer, Editor, EventRef, Events, ItemView, MarkdownPostProcessorContext, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, Vault, WorkspaceLeaf } from 'obsidian';
+import { App, debounce, Debouncer, Editor, EditorPosition, EventRef, Events, ItemView, MarkdownPostProcessorContext, MarkdownView, Menu, Modal, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, Vault, WorkspaceLeaf } from 'obsidian';
 
 interface Comment {
 	name: string
 	content: string
-	pos: number
-	line: number
+	startPos: EditorPosition
+	endPos: EditorPosition
 }
 
 interface AllComments {
@@ -79,7 +79,7 @@ export default class CommentPlugin extends Plugin {
 		if (!(file instanceof TFile)) return
 
 		const content = await file.vault.cachedRead(file)
-		const comments = this.findComments(content, file.name)
+		const comments = this.findComments(content)
 
 		this.app.workspace.getLeavesOfType(VIEW_TYPE_COMMENT).forEach(leaf => {
 			if (leaf.view instanceof CommentView) leaf.view.setComments(comments, file.name)
@@ -87,22 +87,26 @@ export default class CommentPlugin extends Plugin {
 
 	}
 
-	findComments(file: string, source: string): Comment[]{
+	findComments(file: string): Comment[]{
 		const comments: Comment[] = []
-		const regex = /> \[!comment\] (.+?)\n((?:> .+\n?)+)/g;
+		const regex = /> \[!comment\] (.+?)\n((?:> *.*\n?)+)/g;
 		const matches = file.matchAll(regex)
 
 		for (const match of matches) {
 			const name = match[1].trim()
 			const content = match[2].split('\n')
-				.map(line => line.replace(/^> /, '').trim())
+				.map(line => line.replace(/^>/, '').trim())
 				.filter(line => line.length > 0)
 				.join('\n')
-			const pos = match.index + match[0].length + 1
 
-			const line = (file.slice(0, pos).match(/\n/g)?.length || 0) + 1
 
-			comments.push({name, content, pos, line})
+			const startLine = file.slice(0,match.index).match(/\n/g)?.length || 0	
+			const endOffset = match.index + match[0].length + 1
+			const endLine = file.slice(0, endOffset).match(/\n/g)?.length || 0
+
+			const startPos: EditorPosition = {line: startLine, ch: 0 }
+			const endPos: EditorPosition = {line: endLine, ch: 0}
+			comments.push({name, content, startPos, endPos})
 		}
 
 		return comments
@@ -155,7 +159,7 @@ class CommentView extends ItemView {
 			})
 
 			commentItem.createEl('b', {
-				text: `${comment.line}:`,
+				text: `${comment.endPos.line}:`,
 				cls: 'comment-line'
 			})
 
@@ -174,6 +178,7 @@ class CommentView extends ItemView {
 
             // Add click event to navigate to source
             commentItem.addEventListener('click', () => this.navigateToComment(comment, file));
+			commentItem.addEventListener('contextmenu', (evt) => this.showCommentOptions(evt, comment, file))
 		})
 	}
 
@@ -182,14 +187,33 @@ class CommentView extends ItemView {
 		const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor
 		const file = this.app.workspace.getActiveFile()
 
-		if (editor && file && comment.pos !== undefined) {
+		if (editor && file && comment.endPos !== undefined) {
 			// Convert character position to line and character
-			const pos = editor.offsetToPos(comment.pos);
-			editor.setCursor(pos);
+			editor.setCursor(comment.endPos);
+			const oneBelow = {line: comment.endPos.line + 1, ch: 0}
 
-			editor.scrollIntoView({ from: pos, to: pos }, true);
+			editor.scrollIntoView({ from: oneBelow, to: oneBelow }, true);
 		}
 			
+	}
+
+	private showCommentOptions(evt: MouseEvent, comment: Comment, fileName: string) {
+		const menu = new Menu()
+		menu.addItem(item => {
+			item
+				.setTitle('Remove')
+				.setIcon('trash')
+				.onClick(async () => {
+					await this.app.workspace.openLinkText('', fileName)
+					const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor
+
+					if (editor) {
+						editor.replaceRange('', comment.startPos, comment.endPos)
+					}
+				})
+		})
+
+		menu.showAtMouseEvent(evt)
 	}
 
 	async onOpen() {
