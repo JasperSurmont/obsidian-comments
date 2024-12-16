@@ -1,65 +1,55 @@
-import { App, Editor, ItemView, MarkdownPostProcessorContext, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, WorkspaceLeaf } from 'obsidian';
+import { App, debounce, Debouncer, Editor, EventRef, Events, ItemView, MarkdownPostProcessorContext, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, Vault, WorkspaceLeaf } from 'obsidian';
 
-// Remember to rename these classes and interfaces!
-
-interface CommentSettings {
-	leftDelim: string
-	rightDelim: string
+interface Comment {
+	name: string
+	content: string
+	pos: number
+	line: number
 }
 
-const DEFAULT_SETTINGS: CommentSettings = {
-	leftDelim: '{{',
-	rightDelim: '}}'
+interface AllComments {
+	[key: string]: Comment[]
 }
 
 const VIEW_TYPE_COMMENT = 'comment-view'
 
-export default class Comment extends Plugin {
-	settings: CommentSettings;
+export default class CommentPlugin extends Plugin {
+	debounceUpdate = debounce(this.updateComments, 500, true)
+
+	modifyListener: EventRef
+	fileOpenListener: EventRef
 
 	async onload() {
-		await this.loadSettings();
-		this.registerMarkdownPostProcessor(this.postProcessor)
+		this.registerMarkdownPostProcessor(this.postProcessor.bind(this))
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Comments', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
+		this.addRibbonIcon('dice', 'Comments', () => {
 			this.activateView();
 		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('comment-ribbon-class');
 
 		this.registerView(
 			VIEW_TYPE_COMMENT,
-			(leaf) => new CommentView(leaf)
+			(leaf) => new CommentView(leaf, this)
+		)
+			
+		this.modifyListener = this.app.vault.on('modify', file => {
+			this.debounceUpdate(file)
+		})
+
+		this.fileOpenListener = this.app.workspace.on('file-open', file => {
+			if (file) this.updateComments(file)}
 		)
 
-		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new CommentModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new CommentSettingTab(this.app, this));
+			id: 'comment-add',
+			name: 'Add new comment',
+			editorCallback(editor, ctx) {
+				editor.replaceRange(`> [!comment] NAME\n> COMMENT`, editor.getCursor())
+			},
+		})
 	}
 
 	async activateView() {
 		const { workspace } = this.app;
-	
 		let leaf: WorkspaceLeaf | null = null;
 		const leaves = workspace.getLeavesOfType(VIEW_TYPE_COMMENT);
 	
@@ -75,87 +65,58 @@ export default class Comment extends Plugin {
 	  }
 
 	onunload() {
-
-	}
-
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
+		this.app.workspace.offref(this.modifyListener)
+		this.app.workspace.offref(this.fileOpenListener)
 	}
 
 	postProcessor(el: HTMLElement, ctx: MarkdownPostProcessorContext) {
-		console.log("working")
-		let callouts = el.findAll("callout")
-
-		console.log(callouts.length)
+		if (this.app.workspace.getActiveViewOfType(MarkdownView)?.getMode() == 'source') return;
+		let callouts = el.findAll(".callout").filter(c => c.getAttribute('data-callout')?.toLowerCase() === 'comment')
+		callouts.forEach(c => c.hide())
 	}
 
-	editorExtension() {
-		this.registerEditorExtension()
+	async updateComments(file: TAbstractFile) {
+		if (!(file instanceof TFile)) return
+
+		const content = await file.vault.cachedRead(file)
+		const comments = this.findComments(content, file.name)
+
+		this.app.workspace.getLeavesOfType(VIEW_TYPE_COMMENT).forEach(leaf => {
+			if (leaf.view instanceof CommentView) leaf.view.setComments(comments, file.name)
+		})
+
 	}
 
-	
-}
+	findComments(file: string, source: string): Comment[]{
+		const comments: Comment[] = []
+		const regex = /> \[!comment\] (.+?)\n((?:> .+\n?)+)/g;
+		const matches = file.matchAll(regex)
 
-class CommentModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
+		for (const match of matches) {
+			const name = match[1].trim()
+			const content = match[2].split('\n')
+				.map(line => line.replace(/^> /, '').trim())
+				.filter(line => line.length > 0)
+				.join('\n')
+			const pos = match.index + match[0].length + 1
 
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
+			const line = (file.slice(0, pos).match(/\n/g)?.length || 0) + 1
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
+			comments.push({name, content, pos, line})
+		}
 
-class CommentSettingTab extends PluginSettingTab {
-	plugin: Comment;
-
-	constructor(app: App, plugin: Comment) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-
-	display(): void {
-		const {containerEl} = this;
-
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName('Comment delimiter left')
-			.setDesc('How do you want a comment to start left?')
-			.addText(text => text
-				.setPlaceholder('{{')
-				.setValue(this.plugin.settings.leftDelim)
-				.onChange(async (value) => {
-					this.plugin.settings.leftDelim = value;
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
-		.setName('Comment delimiter right')
-		.setDesc('How do you want a comment to end right?')
-		.addText(text => text
-			.setPlaceholder('}}')
-			.setValue(this.plugin.settings.rightDelim)
-			.onChange(async (value) => {
-				this.plugin.settings.rightDelim = value;
-				await this.plugin.saveSettings();
-			}));
+		return comments
 	}
 }
 
 class CommentView extends ItemView {
-	constructor(leaf: WorkspaceLeaf) {
+	private comments: AllComments = {};
+	private commentsEl: HTMLElement
+	private plugin: CommentPlugin
+
+	constructor(leaf: WorkspaceLeaf, plugin: CommentPlugin) {
 		super(leaf)
+		this.plugin = plugin
 	}
 
 	getViewType() {
@@ -166,10 +127,78 @@ class CommentView extends ItemView {
 		return 'Comment View'
 	}
 
+	setComments(comments: Comment[], file: string) {
+		this.comments[file] = comments
+		this.renderComments(file)
+	}
+
+	renderComments(file: string) {
+		this.commentsEl.empty()
+
+		this.commentsEl.createEl('h2', { text: 'Comments', cls: 'comments-title' })
+
+		if (this.comments[file].length == 0 ) {
+			this.commentsEl.createEl('p', { text: 'No comments found'})
+			return
+		}
+
+		const commentsList = this.commentsEl.createEl('div', { cls: 'comments-list' });
+
+		this.comments[file].forEach((comment, index) => {
+			const commentContainer = commentsList.createEl('div', { 
+                cls: 'comment-item-container',
+                attr: { 'data-index': index.toString() }
+            });
+
+			const commentItem = commentContainer.createEl('div', {
+				cls: 'comment-item'
+			})
+
+			commentItem.createEl('b', {
+				text: `${comment.line}:`,
+				cls: 'comment-line'
+			})
+
+            // Comment text
+            commentItem.createEl('p', { 
+                text: `${comment.content}`, 
+                cls: 'comment-text' 
+            });
+		
+
+			commentItem.createEl('i', {
+				text: comment.name,
+				cls: 'comment-name'
+			})
+
+
+            // Add click event to navigate to source
+            commentItem.addEventListener('click', () => this.navigateToComment(comment, file));
+		})
+	}
+
+	private async navigateToComment(comment: Comment, fileName: string) {
+		await this.app.workspace.openLinkText('', fileName)
+		const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor
+		const file = this.app.workspace.getActiveFile()
+
+		if (editor && file && comment.pos !== undefined) {
+			// Convert character position to line and character
+			const pos = editor.offsetToPos(comment.pos);
+			editor.setCursor(pos);
+
+			editor.scrollIntoView({ from: pos, to: pos }, true);
+		}
+			
+	}
+
 	async onOpen() {
 		const container = this.containerEl.children[1]
 		container.empty()
-		container.createEl('h4', {text: 'Comment View'})
+		this.commentsEl = container.createEl('div')
+		this.commentsEl.createEl('h2', { text: 'Comments', cls: 'comments-title'})
+		const activeFile = this.app.workspace.getActiveFile()
+		if (activeFile) this.plugin.updateComments(activeFile)
 	}
 
 	async onClose() {

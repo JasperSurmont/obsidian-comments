@@ -1,8 +1,41 @@
-/*
+h2.comments-title {
+    text-align: center
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.comment-item-container {
+    margin-bottom: 10px
+}
 
-If your plugin does not need CSS, delete this file.
+.callout[data-callout="comment"] {
+    --callout-color: 255, 255, 255;
+    --callout-icon: lucide-message-square;
+    border: 3px solid rgba(0, 0, 0, 0.5);
+    border-radius: 15px;
+}
 
-*/
+
+.comment-item {  
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-top: 3px;
+    padding-bottom: 3px; 
+    transition: background-color 200ms ease-in-out;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px
+}
+
+
+.comment-item:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+@media print {
+    /* Your elements to hide */
+    .callout[data-callout="comment"] {
+        display: none !important;
+    }
+}
