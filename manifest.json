@@ -3,7 +3,7 @@
 	"name": "Comments",
 	"version": "0.1.0",
 	"minAppVersion": "0.15.0",
-	"description": "Add comments like in Word to collaberate on a note.",
+	"description": "Add comments to your markdown files facilitate collaboration.",
 	"author": "Jasper Surmont",
 	"isDesktopOnly": false
 }

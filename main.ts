@@ -5,6 +5,10 @@ interface Comment {
 	content: string
 	startPos: EditorPosition
 	endPos: EditorPosition
+	contentPos: EditorPosition
+	children: Comment[]
+	file: TFile
+	timestamp?: Date
 }
 
 interface AllComments {
@@ -43,7 +47,7 @@ export default class CommentPlugin extends Plugin {
 			id: 'comment-add',
 			name: 'Add new comment',
 			editorCallback(editor, ctx) {
-				editor.replaceRange(`> [!comment] NAME\n> COMMENT`, editor.getCursor())
+				editor.replaceRange(`> [!comment] NAME | ${new Date().toLocaleDateString()}\n> COMMENT`, editor.getCursor())
 			},
 		})
 	}
@@ -79,7 +83,7 @@ export default class CommentPlugin extends Plugin {
 		if (!(file instanceof TFile)) return
 
 		const content = await file.vault.cachedRead(file)
-		const comments = this.findComments(content)
+		const comments = this.findComments(file, content, {line: 0, ch: 0})
 
 		this.app.workspace.getLeavesOfType(VIEW_TYPE_COMMENT).forEach(leaf => {
 			if (leaf.view instanceof CommentView) leaf.view.setComments(comments, file.name)
@@ -87,26 +91,42 @@ export default class CommentPlugin extends Plugin {
 
 	}
 
-	findComments(file: string): Comment[]{
+	findComments(file: TFile, fileContent: string, posOffset: EditorPosition, contentPos?: EditorPosition): Comment[] {
 		const comments: Comment[] = []
-		const regex = /> \[!comment\] (.+?)\n((?:> *.*\n?)+)/g;
-		const matches = file.matchAll(regex)
+		const regex = /> \[!comment\] (.+?)\n((?:> *.*\n?)+)/gi;
+		const matches = fileContent.matchAll(regex)
 
 		for (const match of matches) {
-			const name = match[1].trim()
-			const content = match[2].split('\n')
+			let name = match[1].trim()
+			let timestamp
+
+			if (name.indexOf('| ') >= 0) {
+				const [day,month,year] = name.slice(name.indexOf("| ") + 2).split('/').map(Number)
+				timestamp = new Date(year, month - 1, day)
+				name = name.slice(0, name.indexOf('| '))
+			}
+
+			// Original full content, including subcomments
+			let content = match[2].split('\n')
 				.map(line => line.replace(/^>/, '').trim())
-				.filter(line => line.length > 0)
 				.join('\n')
+			
 
+			const startLine = fileContent.slice(0,match.index).match(/\n/g)?.length || 0
+			const endLine = fileContent.slice(0, match.index + match[0].length + 1).match(/\n/g)?.length || 0
+			const startPos = {line: startLine + posOffset.line, ch: 0 }
+			const endPos = {line: endLine + posOffset.line, ch: 0}
 
-			const startLine = file.slice(0,match.index).match(/\n/g)?.length || 0	
-			const endOffset = match.index + match[0].length + 1
-			const endLine = file.slice(0, endOffset).match(/\n/g)?.length || 0
+			if (!contentPos) contentPos = {line: endPos.line, ch: 0}
 
-			const startPos: EditorPosition = {line: startLine, ch: 0 }
-			const endPos: EditorPosition = {line: endLine, ch: 0}
-			comments.push({name, content, startPos, endPos})
+			// We need to add one to the line cause we are not counting the title (name) line
+			const children = this.findComments(file, content, {line: startPos.line + 1, ch: 0}, contentPos)
+
+			// We want this comment not to have the subcomments as content
+			if (content.indexOf('>') >= 0)
+				content = content.slice(0, content.indexOf('>'))
+
+			comments.push({name, content, startPos, endPos, children, contentPos, file, timestamp })
 		}
 
 		return comments
@@ -133,34 +153,39 @@ class CommentView extends ItemView {
 
 	setComments(comments: Comment[], file: string) {
 		this.comments[file] = comments
-		this.renderComments(file)
+		console.log(comments)
+		this.renderComments(this.comments[file], file, this.commentsEl)
 	}
 
-	renderComments(file: string) {
-		this.commentsEl.empty()
+	renderComments(comments: Comment[], fileName: string, element: HTMLElement, nested?: boolean) {
+		element.empty()
 
-		this.commentsEl.createEl('h2', { text: 'Comments', cls: 'comments-title' })
-
-		if (this.comments[file].length == 0 ) {
-			this.commentsEl.createEl('p', { text: 'No comments found'})
-			return
-		}
-
-		const commentsList = this.commentsEl.createEl('div', { cls: 'comments-list' });
-
-		this.comments[file].forEach((comment, index) => {
-			const commentContainer = commentsList.createEl('div', { 
+		comments.forEach((comment, index) => {
+			const commentContainer = element.createEl('div', { 
                 cls: 'comment-item-container',
                 attr: { 'data-index': index.toString() }
             });
 
-			const commentItem = commentContainer.createEl('div', {
-				cls: 'comment-item'
+			const headerDiv = commentContainer.createEl('div', {cls: 'comment-item-header'})
+			const dateClasses = ['comment-item-date']
+			if (!nested) {
+				headerDiv.createEl('b', {
+					text: `Line ${comment.endPos.line}`,
+					cls: 'comment-line'
+				})
+			} else {
+				// Create empty div to retain layout
+				headerDiv.createEl('div')
+				dateClasses.push('comment-item-date-nested')
+			}
+
+			headerDiv.createEl('b', {
+				cls: dateClasses, 
+				text: comment.timestamp?.toLocaleDateString()
 			})
 
-			commentItem.createEl('b', {
-				text: `${comment.endPos.line}:`,
-				cls: 'comment-line'
+			const commentItem = commentContainer.createEl('div', {
+				cls: 'comment-item'
 			})
 
             // Comment text
@@ -175,10 +200,15 @@ class CommentView extends ItemView {
 				cls: 'comment-name'
 			})
 
+			if (comment.children.length > 0) {
+				const childrenCommentsEl = commentContainer.createEl('div', { cls: 'comment-children' })
+				this.renderComments(comment.children, fileName, childrenCommentsEl, true)
+			}
+
 
             // Add click event to navigate to source
-            commentItem.addEventListener('click', () => this.navigateToComment(comment, file));
-			commentItem.addEventListener('contextmenu', (evt) => this.showCommentOptions(evt, comment, file))
+			commentContainer.addEventListener('click', () => this.navigateToComment(comment, fileName));
+			commentContainer.addEventListener('contextmenu', (evt) => this.showCommentOptions(evt, comment, fileName))
 		})
 	}
 
@@ -187,18 +217,27 @@ class CommentView extends ItemView {
 		const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor
 		const file = this.app.workspace.getActiveFile()
 
-		if (editor && file && comment.endPos !== undefined) {
-			// Convert character position to line and character
-			editor.setCursor(comment.endPos);
-			const oneBelow = {line: comment.endPos.line + 1, ch: 0}
+		console.log(`start: ${comment.contentPos.line}`)
 
-			editor.scrollIntoView({ from: oneBelow, to: oneBelow }, true);
+		if (editor && file ) {
+			// Convert character position to line and character
+			editor.setCursor(comment.contentPos);
+
+			editor.scrollIntoView({ from: comment.contentPos, to: comment.contentPos }, true);
 		}
 			
 	}
 
 	private showCommentOptions(evt: MouseEvent, comment: Comment, fileName: string) {
 		const menu = new Menu()
+
+		menu.addItem(item => {
+			item
+				.setTitle("Add")
+				.setIcon("plus")
+				.onClick(() => this.addComment(comment))
+		})
+
 		menu.addItem(item => {
 			item
 				.setTitle('Remove')
@@ -216,11 +255,22 @@ class CommentView extends ItemView {
 		menu.showAtMouseEvent(evt)
 	}
 
+	private addComment(comment: Comment) {
+		this.app.vault.process(comment.file, content => {
+			const lines = content.split('\n')
+			lines.splice(comment.endPos.line - 1, 0, "> ", `>> [!comment] NAME | ${new Date().toLocaleDateString()}`, ">> COMMENT")
+			content = lines.join('\n')
+			return content
+		})
+	}
+
 	async onOpen() {
 		const container = this.containerEl.children[1]
 		container.empty()
-		this.commentsEl = container.createEl('div')
-		this.commentsEl.createEl('h2', { text: 'Comments', cls: 'comments-title'})
+		const commentContainer = container.createEl('div')
+		commentContainer.createEl('h2', { text: 'Comments', cls: 'comments-title'})
+		this.commentsEl = commentContainer.createEl('div')
+
 		const activeFile = this.app.workspace.getActiveFile()
 		if (activeFile) this.plugin.updateComments(activeFile)
 	}

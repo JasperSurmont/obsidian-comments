@@ -3,7 +3,26 @@ h2.comments-title {
 }
 
 .comment-item-container {
-    margin-bottom: 10px
+    margin-bottom: 10px;
+    padding: 10px;
+    transition: background-color 200ms ease-in-out;
+    border-radius: 5px;
+    border: solid rgba(255, 255, 255, 0.2);
+    display: flex;
+    flex-direction: column;
+}
+
+.comment-item-date-nested {
+    font-size: 11px;
+}
+
+.comment-children[hide='true'] {
+    display: none
+}
+
+.comment-item-header {
+    display: flex;
+    justify-content: space-between;
 }
 
 .callout[data-callout="comment"] {
@@ -22,12 +41,6 @@ h2.comments-title {
 }
 
 .comment-item {  
-    padding-left: 10px;
-    padding-right: 10px;
-    padding-top: 3px;
-    padding-bottom: 3px; 
-    transition: background-color 200ms ease-in-out;
-    border-radius: 10px;
     display: flex;
     flex-direction: row;
     justify-content: space-between;
@@ -35,12 +48,11 @@ h2.comments-title {
     gap: 10px
 }
 
-
-.theme-dark .comment-item:hover {
+.theme-dark .comment-item-container:hover {
     background-color: rgba(255, 255, 255, 0.2);
 }
 
-.theme-light .comment-item:hover {
+.theme-light .comment-item-container:hover {
     background-color: rgba(0, 0, 0, 0.2);
 }
 
