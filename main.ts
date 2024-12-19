@@ -24,7 +24,7 @@ export default class CommentPlugin extends Plugin {
 	fileOpenListener: EventRef
 
 	async onload() {
-		this.registerMarkdownPostProcessor(this.postProcessor.bind(this))
+		//this.registerMarkdownPostProcessor(this.postProcessor.bind(this))
 
 		this.addRibbonIcon('dice', 'Comments', () => {
 			this.activateView();
@@ -153,7 +153,6 @@ class CommentView extends ItemView {
 
 	setComments(comments: Comment[], file: string) {
 		this.comments[file] = comments
-		console.log(comments)
 		this.renderComments(this.comments[file], file, this.commentsEl)
 	}
 
@@ -162,36 +161,42 @@ class CommentView extends ItemView {
 
 		comments.forEach((comment, index) => {
 			const commentContainer = element.createEl('div', { 
-                cls: 'comment-item-container',
-                attr: { 'data-index': index.toString() }
+                cls: nested ? 'comment-child-container' : 'comment-item-container',
             });
 
-			const headerDiv = commentContainer.createEl('div', {cls: 'comment-item-header'})
-			const dateClasses = ['comment-item-date']
+			if (nested) commentContainer.createEl('div', {cls: 'comment-child-separator' })
+
+			const headerDiv = commentContainer.createEl('div', {cls: 'comment-header'})
+			let minimizeEl
 			if (!nested) {
 				headerDiv.createEl('b', {
 					text: `Line ${comment.endPos.line}`,
 					cls: 'comment-line'
 				})
+				minimizeEl = headerDiv.createEl('button', {
+					text: '+',
+					cls: 'comment-minimize',
+					
+				})
+				
 			} else {
 				// Create empty div to retain layout
 				headerDiv.createEl('div')
-				dateClasses.push('comment-item-date-nested')
 			}
 
 			headerDiv.createEl('b', {
-				cls: dateClasses, 
+				cls: nested ? 'comment-child-date' : 'comment-item-date', 
 				text: comment.timestamp?.toLocaleDateString()
 			})
 
 			const commentItem = commentContainer.createEl('div', {
-				cls: 'comment-item'
+				cls: nested ? 'comment-child' : 'comment-item'
 			})
 
             // Comment text
             commentItem.createEl('p', { 
                 text: `${comment.content}`, 
-                cls: 'comment-text' 
+                cls: nested ? 'comment-child-text': 'comment-item-text' 
             });
 		
 
@@ -200,15 +205,32 @@ class CommentView extends ItemView {
 				cls: 'comment-name'
 			})
 
-			if (comment.children.length > 0) {
-				const childrenCommentsEl = commentContainer.createEl('div', { cls: 'comment-children' })
+			if (!nested && comment.children.length > 0) {
+				const childrenCommentsEl = commentContainer.createEl('div', { cls: 'comment-children', attr: {'hidden': true }})
+				// Initially hide the children
+				childrenCommentsEl.hide()
+
+				// Recursively render the comments
 				this.renderComments(comment.children, fileName, childrenCommentsEl, true)
+
+				// Minize the comment listener
+				minimizeEl?.addEventListener('click', () => {
+					if (childrenCommentsEl.hidden) {
+						childrenCommentsEl.hidden = false
+						childrenCommentsEl.show()
+						minimizeEl!.innerText = '-'
+					} else {
+						childrenCommentsEl.hide()
+						childrenCommentsEl.hidden = true
+						minimizeEl!.innerText = '+'
+					}
+				})
 			}
 
 
             // Add click event to navigate to source
-			commentContainer.addEventListener('click', () => this.navigateToComment(comment, fileName));
-			commentContainer.addEventListener('contextmenu', (evt) => this.showCommentOptions(evt, comment, fileName))
+			commentItem.addEventListener('click', () => this.navigateToComment(comment, fileName));
+			commentItem.addEventListener('contextmenu', (evt) => this.showCommentOptions(evt, comment))
 		})
 	}
 
@@ -216,8 +238,6 @@ class CommentView extends ItemView {
 		await this.app.workspace.openLinkText('', fileName)
 		const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor
 		const file = this.app.workspace.getActiveFile()
-
-		console.log(`start: ${comment.contentPos.line}`)
 
 		if (editor && file ) {
 			// Convert character position to line and character
@@ -228,7 +248,7 @@ class CommentView extends ItemView {
 			
 	}
 
-	private showCommentOptions(evt: MouseEvent, comment: Comment, fileName: string) {
+	private showCommentOptions(evt: MouseEvent, comment: Comment) {
 		const menu = new Menu()
 
 		menu.addItem(item => {
@@ -242,14 +262,7 @@ class CommentView extends ItemView {
 			item
 				.setTitle('Remove')
 				.setIcon('trash')
-				.onClick(async () => {
-					await this.app.workspace.openLinkText('', fileName)
-					const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor
-
-					if (editor) {
-						editor.replaceRange('', comment.startPos, comment.endPos)
-					}
-				})
+				.onClick(() => this.removeComment(comment))
 		})
 
 		menu.showAtMouseEvent(evt)
@@ -262,6 +275,19 @@ class CommentView extends ItemView {
 			content = lines.join('\n')
 			return content
 		})
+	}
+
+	private removeComment(comment: Comment) {
+		this.app.vault.process(comment.file, content => {
+			const lines = content.split('\n')
+			lines.splice(comment.startPos.line - 1, comment.endPos.line - comment.startPos.line)
+			content = lines.join('\n')
+			return content
+		})
+
+		const comments = this.comments[comment.file.name]
+		comments.remove(comment)
+		this.renderComments(comments, comment.file.name, this.commentsEl)
 	}
 
 	async onOpen() {

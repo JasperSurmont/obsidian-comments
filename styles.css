@@ -5,24 +5,74 @@ h2.comments-title {
 .comment-item-container {
     margin-bottom: 10px;
     padding: 10px;
-    transition: background-color 200ms ease-in-out;
     border-radius: 5px;
     border: solid rgba(255, 255, 255, 0.2);
     display: flex;
     flex-direction: column;
 }
 
-.comment-item-date-nested {
-    font-size: 11px;
+.comment-item {  
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    border-radius: 10px;
+    transition: background-color 200ms ease-in-out;
+    padding-left: 10px;
+    padding-right: 10px;
 }
 
-.comment-children[hide='true'] {
-    display: none
-}
-
-.comment-item-header {
+.comment-header {
     display: flex;
     justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.comment-minimize {
+    text-align: center;
+    border: solid rgba(255, 255, 255, 0.5);
+    
+    /* padding: 5px; */
+}
+
+.comment-item-text {
+    font-size: 1.2rem
+}
+
+.comment-children {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.comment-child-container {
+    display: flex;
+    flex-direction: column;
+    margin-left: 20px;
+    padding-left: 10px;
+    padding-top: 10px;
+    gap: 3px;
+}
+
+.comment-child {  
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    transition: background-color 200ms ease-in-out;
+    border-radius: 10px;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+.comment-child-separator {
+    border-top: solid rgba(255,255,255, 0.2)
+}
+
+.comment-child-date {
+    font-size: 1em;
 }
 
 .callout[data-callout="comment"] {
@@ -40,19 +90,20 @@ h2.comments-title {
     border: 3px solid rgba(0, 0, 0, 0.1);
 }
 
-.comment-item {  
-    display: flex;
-    flex-direction: row;
-    justify-content: space-between;
-    align-items: center;
-    gap: 10px
-}
 
-.theme-dark .comment-item-container:hover {
+.theme-dark .comment-item:hover {
     background-color: rgba(255, 255, 255, 0.2);
 }
 
-.theme-light .comment-item-container:hover {
+.theme-light .comment-item:hover {
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+.theme-dark .comment-child:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.theme-light .comment-child:hover {
     background-color: rgba(0, 0, 0, 0.2);
 }
 
