@@ -7,6 +7,7 @@ h2.comments-title {
     padding: 10px;
     border-radius: 5px;
     border: solid rgba(255, 255, 255, 0.2);
+    border-width: 1px;
     display: flex;
     flex-direction: column;
 }
@@ -26,18 +27,27 @@ h2.comments-title {
 .comment-header {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 10px;
+    margin-bottom: 5px;
 }
 
 .comment-minimize {
     text-align: center;
-    border: solid rgba(255, 255, 255, 0.5);
+    border: solid rgba(255, 255, 255, 0.2);
+    border-width: 1px;
     
     /* padding: 5px; */
 }
 
+.comment-line {
+    font-size: .8rem;
+}
+
+.comment-item-date {
+    font-size: .8rem;
+}
+
 .comment-item-text {
-    font-size: 1.2rem
+    font-size: 1rem
 }
 
 .comment-children {
@@ -68,11 +78,13 @@ h2.comments-title {
 }
 
 .comment-child-separator {
-    border-top: solid rgba(255,255,255, 0.2)
+    border-top: solid rgba(255,255,255, 0.2);
+    border-width: 1px;
+    margin-bottom:5px;
 }
 
 .comment-child-date {
-    font-size: 1em;
+    font-size: .8em;
 }
 
 .callout[data-callout="comment"] {
