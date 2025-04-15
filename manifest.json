@@ -1,7 +1,7 @@
 {
-	"id": "commments",
+	"id": "comments",
 	"name": "Comments",
-	"version": "1.0.1",
+	"version": "1.0.2",
 	"minAppVersion": "0.15.0",
 	"description": "Add comments to your markdown files to facilitate collaboration.",
 	"author": "Jasper Surmont",
