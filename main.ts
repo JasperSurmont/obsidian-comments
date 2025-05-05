@@ -54,7 +54,7 @@ export default class CommentPlugin extends Plugin {
 		)
 
 		this.addCommand({
-			id: 'comment-add',
+			id: 'add',
 			name: 'Add comment at the current cursor position',
 			editorCallback(editor) {
 				editor.replaceRange(`> [!comment] NAME | ${new Date().toLocaleDateString()}\n> COMMENT`, editor.getCursor('from'), editor.getCursor('to'))
@@ -180,7 +180,7 @@ class CommentView extends ItemView {
 	}
 
 	getDisplayText() {
-		return 'Comment View'
+		return 'Comment view'
 	}
 
 	setComments(comments: Comment[], fileName: string) {
