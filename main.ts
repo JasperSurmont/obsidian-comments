@@ -297,6 +297,7 @@ class CommentView extends ItemView {
 				cls: 'comment-child-text'
 			});
 
+
 			commentItem.createEl('i', {
 				text: comment.name,
 				cls: 'comment-name'
