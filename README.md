@@ -21,4 +21,4 @@ If you click the ribbon to open the plugin, a view will open that will show all 
 ## Improvements
 
 - [ ] Setting to choose hide behaviour
-- [ ] ?
+- [ ] Setting for automatic name
