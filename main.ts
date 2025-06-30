@@ -6,10 +6,10 @@ interface Comment {
 	startPos: EditorPosition  // The starting position of the comment
 	endPos: EditorPosition	// The end position of the comment
 	contentPos: EditorPosition // The position of the content this comment is referring to (same for all subcomments of a comment)
-	children: Comment[]
+	children: Comment[] // Possible subcomments 
 	file: TFile
 	timestamp: Date | undefined
-	childrenHidden?: boolean
+	childrenHidden?: boolean // Whether the children are hidden in the sidebar or not
 }
 
 interface AllComments {
@@ -32,7 +32,6 @@ export default class CommentPlugin extends Plugin {
 		}
 
 		this.registerMarkdownPostProcessor(this.postProcessor.bind(this))
-
 
 		this.mdView = mdView
 		this.addRibbonIcon('message-circle', 'Comments', () => {
@@ -126,7 +125,11 @@ export default class CommentPlugin extends Plugin {
 			}
 
 			if (name.indexOf('| ') >= 0) {
-				const [day, month, year] = name.slice(name.indexOf("| ") + 2).split('/').map(Number)
+				// Don't split on separators to allow users to use different separators
+				const date = name.slice(name.indexOf("| ") + 2)
+				const day = parseInt(date.slice(0, 2))
+				const month = parseInt(date.slice(3, 5))
+				const year = parseInt(date.slice(6))
 				timestamp = new Date(year, month - 1, day)
 				name = name.slice(0, name.indexOf('| '))
 			}
@@ -237,22 +240,20 @@ class CommentView extends ItemView {
 			})
 
 			if (comment.children.length > 0) {
-				const childrenCommentsEl = commentContainer.createEl('div', { cls: 'comment-children', attr: { 'hidden': true } })
+				const childrenCommentsEl = commentContainer.createEl('div', { cls: 'comment-children'})
 				// Initially hide the children
-				childrenCommentsEl.hide()
+				hideChildren(childrenCommentsEl)
 
 				// Recursively render the comments
 				this.renderChildrenComments(comment.children, fileName, childrenCommentsEl)
 
 				// Minize the comment listener
 				minimizeEl?.addEventListener('click', () => {
-					if (childrenCommentsEl.hidden) {
-						childrenCommentsEl.hidden = false
-						childrenCommentsEl.show()
+					if (isHidden(childrenCommentsEl)) {
+						showChildren(childrenCommentsEl)
 						minimizeEl!.innerText = '-'
 					} else {
-						childrenCommentsEl.hide()
-						childrenCommentsEl.hidden = true
+						hideChildren(childrenCommentsEl)
 						minimizeEl!.innerText = '+'
 					}
 				})
@@ -386,4 +387,16 @@ class CommentView extends ItemView {
 	async onClose() {
 
 	}
+}
+
+function hideChildren(children: HTMLDivElement) {
+	children.addClass('hidden')
+}
+
+function showChildren(children: HTMLDivElement) {
+	children.removeClass('hidden')
+}
+
+function isHidden(children: HTMLDivElement) {
+	return children.classList.contains('hidden')
 }
