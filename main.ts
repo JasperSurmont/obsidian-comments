@@ -90,7 +90,15 @@ export default class CommentPlugin extends Plugin {
 					console.error("No active editor found");
 					return;
 				}
-				editor.replaceRange(`> [!comment] ${this.settings.username} | ${this.getFormattedTimestamp()}\n> COMMENT`, editor.getCursor('from'), editor.getCursor('to'))
+				const startPos = editor.getCursor('from');
+				const endPos = editor.getCursor('to');
+				
+				// Insert the comment template
+				editor.replaceRange(`> [!comment] ${this.settings.username} | ${this.getFormattedTimestamp()}\n> `, startPos, endPos);
+				
+				// Position cursor at the end of the content line (after "> ")
+				const newCursorPos = { line: startPos.line + 1, ch: 2 };
+				editor.setCursor(newCursorPos);
 			},
 		})
 
@@ -440,8 +448,10 @@ class CommentView extends ItemView {
 		menu.showAtMouseEvent(evt)
 	}
 
-	private addComment(comment: Comment) {
-		this.app.vault.process(comment.file, content => {
+	private async addComment(comment: Comment) {
+		let newCommentLine = 0;
+		
+		await this.app.vault.process(comment.file, content => {
 			const lines = content.split('\n')
 			let insertPosition = comment.endPos.line - 2
 			if (insertPosition < comment.startPos.line) {
@@ -450,10 +460,42 @@ class CommentView extends ItemView {
 			// Insert the subcomment lines
 			lines.splice(insertPosition + 1, 0, "> ")
 			lines.splice(insertPosition + 2, 0, `>> [!comment] ${this.plugin.settings.username} | ${this.plugin.getFormattedTimestamp()}`)
-			lines.splice(insertPosition + 3, 0, ">> COMMENT")
+			lines.splice(insertPosition + 3, 0, ">> ")
+			
+			// Store the line number where the comment content should be (1-based)
+			// The content line is at insertPosition + 3 (0-based), so +1 for 1-based = insertPosition + 4
+			newCommentLine = insertPosition + 4;
 			
 			return lines.join('\n')
 		})
+
+		// Add a small delay to ensure the file is saved and updated
+		setTimeout(async () => {
+			await this.navigateToNewComment(comment.file, newCommentLine);
+		}, 100);
+	}
+
+	private async navigateToNewComment(file: TFile, lineNumber: number) {
+		// Open the file
+		await this.app.workspace.openLinkText('', file.name);
+		
+		// Add a small delay to ensure the editor is ready
+		setTimeout(() => {
+			// Get the active editor
+			const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+			
+			if (editor) {
+				// Position cursor at the end of the comment content line (after ">> ")
+				const cursorPos = { line: lineNumber - 1, ch: 3 }; // -1 for 0-based indexing, ch: 3 for after ">> "
+				editor.setCursor(cursorPos);
+				
+				// Scroll to make sure the cursor is visible
+				editor.scrollIntoView({ from: cursorPos, to: cursorPos }, true);
+				
+				// Focus the editor
+				editor.focus();
+			}
+		}, 200);
 	}
 
 	private async removeComment(comment: Comment) {
