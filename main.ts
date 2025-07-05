@@ -443,9 +443,16 @@ class CommentView extends ItemView {
 	private addComment(comment: Comment) {
 		this.app.vault.process(comment.file, content => {
 			const lines = content.split('\n')
-			lines.splice(comment.endPos.line - 1, 0, "> ", `>> [!comment] ${this.plugin.settings.username} | ${this.plugin.getFormattedTimestamp()}`, ">> COMMENT")
-			content = lines.join('\n')
-			return content
+			let insertPosition = comment.endPos.line - 2
+			if (insertPosition < comment.startPos.line) {
+				insertPosition = comment.startPos.line
+			}
+			// Insert the subcomment lines
+			lines.splice(insertPosition + 1, 0, "> ")
+			lines.splice(insertPosition + 2, 0, `>> [!comment] ${this.plugin.settings.username} | ${this.plugin.getFormattedTimestamp()}`)
+			lines.splice(insertPosition + 3, 0, ">> COMMENT")
+			
+			return lines.join('\n')
 		})
 	}
 
