@@ -179,6 +179,12 @@ h2.comments-title {
     border-radius: 15px;
 }
 
+.callout[data-callout="comment-resolved"] {
+    --callout-icon: lucide-check-circle;
+    border-radius: 15px;
+    display: none !important; /* Hide resolved comments in ALL modes */
+}
+
 .theme-dark .callout[data-callout="comment"] {
     --callout-color: 255, 255, 255;
     border: 3px solid rgba(0, 0, 0, 0.5);
@@ -207,9 +213,54 @@ h2.comments-title {
     background-color: rgba(0, 0, 0, 0.05);
 }
 
+/* Comments section styling */
+.comments-section {
+    margin-bottom: 20px;
+}
+
+.comments-section-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: var(--text-normal);
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding-bottom: 5px;
+}
+
+.no-comments-message {
+    text-align: center;
+    color: var(--text-muted);
+    font-style: italic;
+    margin: 20px 0;
+}
+
+.comment-buttons {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+}
+
+.comment-resolve-button {
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 3px;
+    color: var(--text-normal);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 6px;
+    transition: background-color 200ms ease-in-out;
+}
+
+.comment-resolve-button:hover {
+    background: var(--background-modifier-hover);
+}
+
 @media print {
     /* Your elements to hide */
     .callout[data-callout="comment"] {
+        display: none !important;
+    }
+    .callout[data-callout="comment-resolved"] {
         display: none !important;
     }
 }

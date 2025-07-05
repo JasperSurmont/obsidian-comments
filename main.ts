@@ -18,6 +18,7 @@ interface Comment {
 	file: TFile
 	timestamp: Date | undefined
 	childrenHidden?: boolean // Whether the children are hidden in the sidebar or not
+	resolved?: boolean // Whether the comment is resolved
 }
 
 interface AllComments {
@@ -131,8 +132,16 @@ export default class CommentPlugin extends Plugin {
 	postProcessor(el: HTMLElement, ctx: MarkdownPostProcessorContext) {
 		const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!mdView || mdView.getMode() == 'source') return;
+		
+		// Hide regular comments in preview/reading mode (existing behavior)
 		let callouts = el.findAll(".callout").filter(c => c.getAttribute('data-callout')?.toLowerCase() === 'comment')
 		callouts.forEach(c => {
+			c.hide()
+		})
+		
+		// Hide resolved comments in ALL modes (preview, reading, AND editing)
+		let resolvedCallouts = el.findAll(".callout").filter(c => c.getAttribute('data-callout')?.toLowerCase() === 'comment-resolved')
+		resolvedCallouts.forEach(c => {
 			c.hide()
 		})
 	}
@@ -156,12 +165,14 @@ export default class CommentPlugin extends Plugin {
 	// @param parentContentPos: the content position, useful in subcomments such that they refer to the correct position
 	findComments(file: TFile, fileContent: string, posOffset: EditorPosition, parentContentPos?: EditorPosition): Comment[] {
 		const comments: Comment[] = []
-		const regex = /> \[!comment\] (.+?)\n((?:> *.*\n?)+)/gi;
+		const regex = /> \[!(comment|comment-resolved)\] (.+?)\n((?:> *.*\n?)+)/gi;
 		const matches = fileContent.matchAll(regex)
 
 		for (const match of matches) {
-			// match[0] is the matched content, 1 is the first capture group, 2 is the second capture group, etc.
-			let name = match[1].trim()
+			// match[0] is the matched content, 1 is the callout type, 2 is the name/timestamp, 3 is the content
+			const calloutType = match[1]
+			const resolved = calloutType === 'comment-resolved'
+			let name = match[2].trim()
 			let timestamp
 			let contentPos: EditorPosition
 		
@@ -204,7 +215,7 @@ export default class CommentPlugin extends Plugin {
 			}
 
 			// Original full content, including subcomments
-			let content = match[2].split('\n')
+			let content = match[3].split('\n')
 				.map(line => line.replace(/^>/, '').trim())
 				.join('\n')
 
@@ -226,7 +237,7 @@ export default class CommentPlugin extends Plugin {
 			if (content.indexOf('>') >= 0)
 				content = content.slice(0, content.indexOf('>'))
 
-			comments.push({ name, content, startPos, endPos, children, contentPos, file, timestamp, childrenHidden: false })
+			comments.push({ name, content, startPos, endPos, children, contentPos, file, timestamp, childrenHidden: false, resolved })
 		}
 
 		return comments
@@ -238,6 +249,26 @@ export default class CommentPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	async toggleCommentResolution(comment: Comment) {
+		await this.app.vault.process(comment.file, content => {
+			const lines = content.split('\n')
+			const startLine = comment.startPos.line - 1 // Convert to 0-based index
+			
+			if (startLine >= 0 && startLine < lines.length) {
+				const currentLine = lines[startLine]
+				if (comment.resolved) {
+					// Change from resolved to active
+					lines[startLine] = currentLine.replace(/> \[!comment-resolved\]/, '> [!comment]')
+				} else {
+					// Change from active to resolved
+					lines[startLine] = currentLine.replace(/> \[!comment\]/, '> [!comment-resolved]')
+				}
+			}
+			
+			return lines.join('\n')
+		})
 	}
 }
 
@@ -312,96 +343,138 @@ class CommentView extends ItemView {
 	renderComments(fileName: string) {
 		this.commentsEl.empty()
 
+		// Separate active and resolved comments
+		const activeComments = this.comments[fileName].filter(comment => !comment.resolved)
+		const resolvedComments = this.comments[fileName].filter(comment => comment.resolved)
+
 		// Update expand all button text based on current state
 		this.updateExpandAllButton(fileName)
 
-		this.comments[fileName].forEach((comment, index) => {
-			const commentContainer = this.commentsEl.createEl('div', {
-				cls: 'comment-item-container',
-			});
+		// Render Active Comments section
+		if (activeComments.length > 0) {
+			const activeSection = this.commentsEl.createEl('div', { cls: 'comments-section' })
+			activeSection.createEl('h3', { text: 'Active Comments', cls: 'comments-section-title' })
+			
+			activeComments.forEach((comment, index) => {
+				this.renderSingleComment(comment, activeSection, fileName, false)
+			})
+		}
 
-			const headerDiv = commentContainer.createEl('div', { cls: 'comment-header' })
+		// Render Resolved Comments section
+		if (resolvedComments.length > 0) {
+			const resolvedSection = this.commentsEl.createEl('div', { cls: 'comments-section' })
+			resolvedSection.createEl('h3', { text: 'Resolved Comments', cls: 'comments-section-title' })
 			
-			// Left side: Line number
-			headerDiv.createEl('b', {
-				text: `Line ${comment.endPos.line}`,
-				cls: 'comment-line'
+			resolvedComments.forEach((comment, index) => {
+				this.renderSingleComment(comment, resolvedSection, fileName, true)
 			})
-			
-			// Center: Author name and date/time
-			const metaDiv = headerDiv.createEl('div', { cls: 'comment-meta' })
-			metaDiv.createEl('span', {
-				text: comment.name,
-				cls: 'comment-author'
+		}
+
+		// Show a message if no comments
+		if (activeComments.length === 0 && resolvedComments.length === 0) {
+			this.commentsEl.createEl('p', { text: 'No comments found', cls: 'no-comments-message' })
+		}
+	}
+
+	private renderSingleComment(comment: Comment, container: HTMLElement, fileName: string, isResolved: boolean) {
+		const commentContainer = container.createEl('div', {
+			cls: 'comment-item-container',
+		});
+
+		const headerDiv = commentContainer.createEl('div', { cls: 'comment-header' })
+		
+		// Left side: Line number
+		headerDiv.createEl('b', {
+			text: `Line ${comment.endPos.line}`,
+			cls: 'comment-line'
+		})
+		
+		// Center: Author name and date/time
+		const metaDiv = headerDiv.createEl('div', { cls: 'comment-meta' })
+		metaDiv.createEl('span', {
+			text: comment.name,
+			cls: 'comment-author'
+		})
+		
+		const datetimeDiv = metaDiv.createEl('div', { cls: 'comment-datetime' })
+		if (comment.timestamp) {
+			datetimeDiv.createEl('span', {
+				text: comment.timestamp.toLocaleDateString(),
+				cls: 'comment-item-date'
 			})
+			datetimeDiv.createEl('span', {
+				text: comment.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+				cls: 'comment-item-time'
+			})
+		}
+		
+		// Right side: Resolve/Unresolve button and Minimize button
+		const buttonContainer = headerDiv.createEl('div', { cls: 'comment-buttons' })
+		
+		// Add resolve/unresolve button (only for parent comments)
+		const resolveButton = buttonContainer.createEl('button', {
+			text: isResolved ? '↶' : '✓',
+			cls: 'comment-resolve-button',
+			attr: { title: isResolved ? 'Unresolve comment' : 'Resolve comment' }
+		})
+		
+		resolveButton.addEventListener('click', async () => {
+			await this.plugin.toggleCommentResolution(comment)
+		})
+		
+		// Minimize button
+		const minimizeEl = buttonContainer.createEl('button', {
+			text: '+',
+			cls: 'comment-minimize',
+		})
+
+		const commentItem = commentContainer.createEl('div', {
+			cls: 'comment-item'
+		})
+
+		// Comment text
+		commentItem.createEl('p', {
+			text: `${comment.content}`,
+			cls: 'comment-item-text'
+		});
+
+		if (comment.children.length > 0) {
+			const childrenCommentsEl = commentContainer.createEl('div', { cls: 'comment-children'})
 			
-			const datetimeDiv = metaDiv.createEl('div', { cls: 'comment-datetime' })
-			if (comment.timestamp) {
-				datetimeDiv.createEl('span', {
-					text: comment.timestamp.toLocaleDateString(),
-					cls: 'comment-item-date'
-				})
-				datetimeDiv.createEl('span', {
-					text: comment.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-					cls: 'comment-item-time'
-				})
+			// Set initial visibility based on the comment's childrenHidden state
+			if (comment.childrenHidden) {
+				hideChildren(childrenCommentsEl)
+				minimizeEl!.innerText = '+'
+			} else {
+				showChildren(childrenCommentsEl)
+				minimizeEl!.innerText = '-'
 			}
-			
-			// Right side: Minimize button
-			const minimizeEl = headerDiv.createEl('button', {
-				text: '+',
-				cls: 'comment-minimize',
-			})
 
-			const commentItem = commentContainer.createEl('div', {
-				cls: 'comment-item'
-			})
+			// Recursively render the comments
+			this.renderChildrenComments(comment.children, fileName, childrenCommentsEl)
 
-			// Comment text
-			commentItem.createEl('p', {
-				text: `${comment.content}`,
-				cls: 'comment-item-text'
-			});
-
-			if (comment.children.length > 0) {
-				const childrenCommentsEl = commentContainer.createEl('div', { cls: 'comment-children'})
-				
-				// Set initial visibility based on the comment's childrenHidden state
-				if (comment.childrenHidden) {
-					hideChildren(childrenCommentsEl)
-					minimizeEl!.innerText = '+'
-				} else {
+			// Minize the comment listener
+			minimizeEl?.addEventListener('click', () => {
+				if (isHidden(childrenCommentsEl)) {
 					showChildren(childrenCommentsEl)
 					minimizeEl!.innerText = '-'
+					comment.childrenHidden = false
+				} else {
+					hideChildren(childrenCommentsEl)
+					minimizeEl!.innerText = '+'
+					comment.childrenHidden = true
 				}
+				// Update expand all button when individual comments are toggled
+				this.updateExpandAllButton(fileName)
+			})
+		} else {
+			minimizeEl.hide()
+			minimizeEl.setAttr('hidden', true)
+		}
 
-				// Recursively render the comments
-				this.renderChildrenComments(comment.children, fileName, childrenCommentsEl)
-
-				// Minize the comment listener
-				minimizeEl?.addEventListener('click', () => {
-					if (isHidden(childrenCommentsEl)) {
-						showChildren(childrenCommentsEl)
-						minimizeEl!.innerText = '-'
-						comment.childrenHidden = false
-					} else {
-						hideChildren(childrenCommentsEl)
-						minimizeEl!.innerText = '+'
-						comment.childrenHidden = true
-					}
-					// Update expand all button when individual comments are toggled
-					this.updateExpandAllButton(fileName)
-				})
-			} else {
-				minimizeEl.hide()
-				minimizeEl.setAttr('hidden', true)
-			}
-
-
-			// Add click event to navigate to source
-			commentItem.addEventListener('click', () => this.navigateToComment(comment, fileName));
-			commentItem.addEventListener('contextmenu', (evt) => this.showCommentOptions(evt, comment, false))
-		})
+		// Add click event to navigate to source
+		commentItem.addEventListener('click', () => this.navigateToComment(comment, fileName));
+		commentItem.addEventListener('contextmenu', (evt) => this.showCommentOptions(evt, comment, false))
 	}
 
 	renderChildrenComments(comments: Comment[], fileName: string, element: HTMLElement) {
@@ -459,9 +532,10 @@ class CommentView extends ItemView {
 	private updateExpandAllButton(fileName: string) {
 		if (!this.expandAllButton || !this.comments[fileName]) return
 		
-		// Check if all comments with children are expanded
-		const commentsWithChildren = this.comments[fileName].filter(comment => comment.children.length > 0)
-		const allExpanded = commentsWithChildren.every(comment => !comment.childrenHidden)
+		// Check if all active comments with children are expanded (ignore resolved comments for expand/collapse)
+		const activeCommentsWithChildren = this.comments[fileName]
+			.filter(comment => !comment.resolved && comment.children.length > 0)
+		const allExpanded = activeCommentsWithChildren.every(comment => !comment.childrenHidden)
 		
 		this.expandAllButton.textContent = allExpanded ? 'Collapse All' : 'Expand All'
 	}
@@ -469,12 +543,13 @@ class CommentView extends ItemView {
 	private toggleExpandAll(fileName: string) {
 		if (!this.comments[fileName]) return
 		
-		// Check current state - if any comment is collapsed, expand all; otherwise collapse all
-		const commentsWithChildren = this.comments[fileName].filter(comment => comment.children.length > 0)
-		const anyCollapsed = commentsWithChildren.some(comment => comment.childrenHidden)
+		// Check current state - if any active comment is collapsed, expand all; otherwise collapse all
+		const activeCommentsWithChildren = this.comments[fileName]
+			.filter(comment => !comment.resolved && comment.children.length > 0)
+		const anyCollapsed = activeCommentsWithChildren.some(comment => comment.childrenHidden)
 		
-		// Set all comments to the opposite state
-		commentsWithChildren.forEach(comment => {
+		// Set all active comments to the opposite state
+		activeCommentsWithChildren.forEach(comment => {
 			comment.childrenHidden = anyCollapsed ? false : true
 		})
 		
@@ -514,6 +589,16 @@ class CommentView extends ItemView {
 				.setIcon("plus")
 				.onClick(() => this.addComment(comment))
 		})
+
+		// Add resolve/unresolve option only for parent comments (not subcomments)
+		if (!child) {
+			menu.addItem(item => {
+				item
+					.setTitle(comment.resolved ? "Unresolve comment" : "Resolve comment")
+					.setIcon(comment.resolved ? "rotate-ccw" : "check")
+					.onClick(async () => await this.plugin.toggleCommentResolution(comment))
+			})
+		}
 
 		menu.addItem(item => {
 			item
