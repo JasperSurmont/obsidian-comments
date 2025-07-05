@@ -171,12 +171,35 @@ export default class CommentPlugin extends Plugin {
 			}
 
 			if (name.indexOf('| ') >= 0) {
-				// Don't split on separators to allow users to use different separators
-				const date = name.slice(name.indexOf("| ") + 2)
-				const day = parseInt(date.slice(0, 2))
-				const month = parseInt(date.slice(3, 5))
-				const year = parseInt(date.slice(6))
-				timestamp = new Date(year, month - 1, day)
+				// Extract the timestamp part after the pipe
+				const timestampStr = name.slice(name.indexOf("| ") + 2).trim()
+				
+				// Handle the new format: [[YYYY-MM-DD]] HH:mm
+				if (timestampStr.includes('[[') && timestampStr.includes(']]')) {
+					// Extract date from wiki-link format [[YYYY-MM-DD]]
+					const dateMatch = timestampStr.match(/\[\[(\d{4}-\d{2}-\d{2})\]\]/)
+					if (dateMatch) {
+						const datePart = dateMatch[1] // YYYY-MM-DD
+						const [year, month, day] = datePart.split('-').map(Number)
+						
+						// Check if there's a time part
+						const timeMatch = timestampStr.match(/\]\]\s+(\d{2}):(\d{2})/)
+						if (timeMatch) {
+							const [, hours, minutes] = timeMatch
+							timestamp = new Date(year, month - 1, day, parseInt(hours), parseInt(minutes))
+						} else {
+							timestamp = new Date(year, month - 1, day)
+						}
+					}
+				} else {
+					// Handle legacy format: DD/MM/YYYY
+					const dateParts = timestampStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/)
+					if (dateParts) {
+						const [, day, month, year] = dateParts
+						timestamp = new Date(parseInt(year), parseInt(month) - 1, parseInt(day))
+					}
+				}
+				
 				name = name.slice(0, name.indexOf('| '))
 			}
 
