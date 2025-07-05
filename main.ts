@@ -1,4 +1,4 @@
-import { App, debounce, EditorPosition, EventRef, ItemView, MarkdownPostProcessorContext, MarkdownView, Menu, Plugin, TAbstractFile, TFile, WorkspaceLeaf, PluginSettingTab, Setting } from 'obsidian';
+import { App, debounce, EditorPosition, EventRef, ItemView, MarkdownPostProcessorContext, MarkdownView, Menu, Plugin, TAbstractFile, TFile, WorkspaceLeaf, PluginSettingTab, Setting, moment } from 'obsidian';
 
 interface CommentPluginSettings {
 	username: string;
@@ -32,6 +32,32 @@ export default class CommentPlugin extends Plugin {
 	modifyListener: EventRef
 	fileOpenListener: EventRef
 
+	public getFormattedDate(): string {
+		// Get the daily notes plugin settings
+		const dailyNotesPlugin = (this.app as any).internalPlugins?.plugins?.['daily-notes'];
+		const dailyNotesSettings = dailyNotesPlugin?.instance?.options;
+		
+		// Use the format from daily notes settings, fallback to YYYY-MM-DD if not available
+		const format = dailyNotesSettings?.format || 'YYYY-MM-DD';
+		
+		// Use moment to format the current date
+		return moment().format(format);
+	}
+
+	public getFormattedTimestamp(): string {
+		// Get the daily notes plugin settings for date format
+		const dailyNotesPlugin = (this.app as any).internalPlugins?.plugins?.['daily-notes'];
+		const dailyNotesSettings = dailyNotesPlugin?.instance?.options;
+		const dateFormat = dailyNotesSettings?.format || 'YYYY-MM-DD';
+		
+		const now = moment();
+		const dateLink = `[[${now.format(dateFormat)}]]`;
+		const timeStamp = now.format('HH:mm');
+		
+		// Return format: [[2025-07-05]] 14:30
+		return `${dateLink} ${timeStamp}`;
+	}
+
 	async onload() {
 		await this.loadSettings();
 		
@@ -64,7 +90,7 @@ export default class CommentPlugin extends Plugin {
 					console.error("No active editor found");
 					return;
 				}
-				editor.replaceRange(`> [!comment] ${this.settings.username} | ${new Date().toLocaleDateString()}\n> COMMENT`, editor.getCursor('from'), editor.getCursor('to'))
+				editor.replaceRange(`> [!comment] ${this.settings.username} | ${this.getFormattedTimestamp()}\n> COMMENT`, editor.getCursor('from'), editor.getCursor('to'))
 			},
 		})
 
@@ -401,7 +427,7 @@ class CommentView extends ItemView {
 	private addComment(comment: Comment) {
 		this.app.vault.process(comment.file, content => {
 			const lines = content.split('\n')
-			lines.splice(comment.endPos.line - 1, 0, "> ", `>> [!comment] ${this.plugin.settings.username} | ${new Date().toLocaleDateString()}`, ">> COMMENT")
+			lines.splice(comment.endPos.line - 1, 0, "> ", `>> [!comment] ${this.plugin.settings.username} | ${this.plugin.getFormattedTimestamp()}`, ">> COMMENT")
 			content = lines.join('\n')
 			return content
 		})
