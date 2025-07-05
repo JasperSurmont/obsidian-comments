@@ -321,19 +321,36 @@ class CommentView extends ItemView {
 			});
 
 			const headerDiv = commentContainer.createEl('div', { cls: 'comment-header' })
+			
+			// Left side: Line number
 			headerDiv.createEl('b', {
 				text: `Line ${comment.endPos.line}`,
 				cls: 'comment-line'
 			})
+			
+			// Center: Author name and date/time
+			const metaDiv = headerDiv.createEl('div', { cls: 'comment-meta' })
+			metaDiv.createEl('span', {
+				text: comment.name,
+				cls: 'comment-author'
+			})
+			
+			const datetimeDiv = metaDiv.createEl('div', { cls: 'comment-datetime' })
+			if (comment.timestamp) {
+				datetimeDiv.createEl('span', {
+					text: comment.timestamp.toLocaleDateString(),
+					cls: 'comment-item-date'
+				})
+				datetimeDiv.createEl('span', {
+					text: comment.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+					cls: 'comment-item-time'
+				})
+			}
+			
+			// Right side: Minimize button
 			const minimizeEl = headerDiv.createEl('button', {
 				text: '+',
 				cls: 'comment-minimize',
-			})
-
-
-			headerDiv.createEl('b', {
-				cls: 'comment-item-date',
-				text: comment.timestamp?.toLocaleDateString()
 			})
 
 			const commentItem = commentContainer.createEl('div', {
@@ -345,12 +362,6 @@ class CommentView extends ItemView {
 				text: `${comment.content}`,
 				cls: 'comment-item-text'
 			});
-
-
-			commentItem.createEl('i', {
-				text: comment.name,
-				cls: 'comment-name'
-			})
 
 			if (comment.children.length > 0) {
 				const childrenCommentsEl = commentContainer.createEl('div', { cls: 'comment-children'})
@@ -404,13 +415,30 @@ class CommentView extends ItemView {
 			commentContainer.createEl('div', { cls: 'comment-child-separator' })
 
 			const headerDiv = commentContainer.createEl('div', { cls: 'comment-header' })
-			// Empty div to retain layout
+			// Left side: Empty div to maintain layout
 			headerDiv.createEl('div')
 
-			headerDiv.createEl('b', {
-				cls: 'comment-child-date',
-				text: comment.timestamp ? comment.timestamp.toLocaleDateString() : '',
+			// Center: Author name and date/time
+			const metaDiv = headerDiv.createEl('div', { cls: 'comment-child-meta' })
+			metaDiv.createEl('span', {
+				text: comment.name,
+				cls: 'comment-child-author'
 			})
+			
+			const datetimeDiv = metaDiv.createEl('div', { cls: 'comment-datetime' })
+			if (comment.timestamp) {
+				datetimeDiv.createEl('span', {
+					text: comment.timestamp.toLocaleDateString(),
+					cls: 'comment-child-date'
+				})
+				datetimeDiv.createEl('span', {
+					text: comment.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+					cls: 'comment-child-time'
+				})
+			}
+			
+			// Right side: Empty div to maintain layout
+			headerDiv.createEl('div')
 
 			const commentItem = commentContainer.createEl('div', {
 				cls: 'comment-child'
@@ -421,12 +449,6 @@ class CommentView extends ItemView {
 				text: `${comment.content}`,
 				cls: 'comment-child-text'
 			});
-
-
-			commentItem.createEl('i', {
-				text: comment.name,
-				cls: 'comment-name'
-			})
 
 			// Add click event to navigate to source
 			commentItem.addEventListener('click', () => this.navigateToComment(comment, fileName));

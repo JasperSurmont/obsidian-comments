@@ -7,8 +7,8 @@ h2.comments-title {
 }
 
 .comment-item-container {
-    margin-bottom: 10px;
-    padding: 10px;
+    margin-bottom: 5px;
+    padding: 10px 10px 5px 10px;
     border-radius: 5px;
     border: solid rgba(255, 255, 255, 0.2);
     border-width: 1px;
@@ -37,7 +37,31 @@ h2.comments-title {
 .comment-header {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     margin-bottom: 5px;
+}
+
+.comment-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-size: .8rem;
+    flex: 1;
+    margin: 0 10px;
+}
+
+.comment-author {
+    font-weight: 500;
+    font-size: .85rem;
+}
+
+.comment-datetime {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-muted);
+    font-size: .75rem;
 }
 
 .comment-minimize {
@@ -58,17 +82,29 @@ h2.comments-title {
 }
 
 .comment-item-date {
-    font-size: .8rem;
+    font-size: .75rem;
+    color: var(--text-muted);
+}
+
+.comment-item-time {
+    font-size: .75rem;
+    color: var(--text-muted);
+    margin-left: 4px;
 }
 
 .comment-item-text {
-    font-size: 1rem
+    font-size: 1rem;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    line-height: 1.4;
+    margin: 0;
+    padding: 0;
 }
 
 .comment-children {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 5px;
 }
 
 .comment-child-container {
@@ -76,8 +112,8 @@ h2.comments-title {
     flex-direction: column;
     margin-left: 20px;
     padding-left: 10px;
-    padding-top: 10px;
-    gap: 3px;
+    padding-top: 5px;
+    gap: 2px;
 }
 
 .comment-child {  
@@ -104,7 +140,38 @@ h2.comments-title {
 }
 
 .comment-child-date {
-    font-size: .8em;
+    font-size: .75rem;
+    color: var(--text-muted);
+}
+
+.comment-child-time {
+    font-size: .75rem;
+    color: var(--text-muted);
+    margin-left: 4px;
+}
+
+.comment-child-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-size: .75rem;
+    flex: 1;
+    margin: 0 10px;
+}
+
+.comment-child-author {
+    font-weight: 500;
+    font-size: .8rem;
+}
+
+.comment-child-text {
+    font-size: .95rem;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    line-height: 1.4;
+    margin: 0;
+    padding: 0;
 }
 
 .callout[data-callout="comment"] {
