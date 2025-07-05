@@ -1,4 +1,12 @@
-import { debounce, EditorPosition, EventRef, ItemView, MarkdownPostProcessorContext, MarkdownView, Menu, Plugin, TAbstractFile, TFile, WorkspaceLeaf } from 'obsidian';
+import { App, debounce, EditorPosition, EventRef, ItemView, MarkdownPostProcessorContext, MarkdownView, Menu, Plugin, TAbstractFile, TFile, WorkspaceLeaf, PluginSettingTab, Setting, moment } from 'obsidian';
+
+interface CommentPluginSettings {
+	username: string;
+}
+
+const DEFAULT_SETTINGS: CommentPluginSettings = {
+	username: 'User'
+}
 
 interface Comment {
 	name: string
@@ -10,6 +18,7 @@ interface Comment {
 	file: TFile
 	timestamp: Date | undefined
 	childrenHidden?: boolean // Whether the children are hidden in the sidebar or not
+	resolved?: boolean // Whether the comment is resolved
 }
 
 interface AllComments {
@@ -19,21 +28,43 @@ interface AllComments {
 const VIEW_TYPE_COMMENT = 'comment-view'
 
 export default class CommentPlugin extends Plugin {
-	debounceUpdate = debounce(this.updateComments, 500, true)
-	mdView: MarkdownView
+	settings: CommentPluginSettings;
+	deounceUpdate = debounce(this.updateComments, 500, true)
 	modifyListener: EventRef
 	fileOpenListener: EventRef
 
+	public getFormattedDate(): string {
+		// Get the daily notes plugin settings
+		const dailyNotesPlugin = (this.app as any).internalPlugins?.plugins?.['daily-notes'];
+		const dailyNotesSettings = dailyNotesPlugin?.instance?.options;
+		
+		// Use the format from daily notes settings, fallback to YYYY-MM-DD if not available
+		const format = dailyNotesSettings?.format || 'YYYY-MM-DD';
+		
+		// Use moment to format the current date
+		return moment().format(format);
+	}
+
+	public getFormattedTimestamp(): string {
+		// Get the daily notes plugin settings for date format
+		const dailyNotesPlugin = (this.app as any).internalPlugins?.plugins?.['daily-notes'];
+		const dailyNotesSettings = dailyNotesPlugin?.instance?.options;
+		const dateFormat = dailyNotesSettings?.format || 'YYYY-MM-DD';
+		
+		const now = moment();
+		const dateLink = `[[${now.format(dateFormat)}]]`;
+		const timeStamp = now.format('HH:mm');
+		
+		// Return format: [[2025-07-05]] 14:30
+		return `${dateLink} ${timeStamp}`;
+	}
+
 	async onload() {
-		const mdView = this.app.workspace.getActiveViewOfType(MarkdownView)
-		if (!mdView) {
-			console.error("Could not get active markdown view when setting up plugin")
-			return
-		}
+		await this.loadSettings();
+		
+		this.addSettingTab(new SettingTab(this.app, this));
 
 		this.registerMarkdownPostProcessor(this.postProcessor.bind(this))
-
-		this.mdView = mdView
 		this.addRibbonIcon('message-circle', 'Comments', () => {
 			this.activateView();
 		});
@@ -44,7 +75,7 @@ export default class CommentPlugin extends Plugin {
 		)
 
 		this.modifyListener = this.app.vault.on('modify', file => {
-			this.debounceUpdate(file)
+			this.deounceUpdate(file)
 		})
 
 		this.fileOpenListener = this.app.workspace.on('file-open', file => {
@@ -55,10 +86,25 @@ export default class CommentPlugin extends Plugin {
 		this.addCommand({
 			id: 'add',
 			name: 'Add comment at the current cursor position',
-			editorCallback(editor) {
-				editor.replaceRange(`> [!comment] NAME | ${new Date().toLocaleDateString()}\n> COMMENT`, editor.getCursor('from'), editor.getCursor('to'))
+			editorCallback: (editor) => {
+				if (!editor) {
+					console.error("No active editor found");
+					return;
+				}
+				const startPos = editor.getCursor('from');
+				const endPos = editor.getCursor('to');
+				
+				// Insert the comment template
+				editor.replaceRange(`> [!comment] ${this.settings.username} | ${this.getFormattedTimestamp()}\n> `, startPos, endPos);
+				
+				// Position cursor at the end of the content line (after "> ")
+				const newCursorPos = { line: startPos.line + 1, ch: 2 };
+				editor.setCursor(newCursorPos);
 			},
 		})
+
+		// Load settings
+		await this.loadSettings();
 	}
 
 	async activateView() {
@@ -84,9 +130,18 @@ export default class CommentPlugin extends Plugin {
 	}
 
 	postProcessor(el: HTMLElement, ctx: MarkdownPostProcessorContext) {
-		if (this.mdView.getMode() == 'source') return;
+		const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!mdView || mdView.getMode() == 'source') return;
+		
+		// Hide regular comments in preview/reading mode (existing behavior)
 		let callouts = el.findAll(".callout").filter(c => c.getAttribute('data-callout')?.toLowerCase() === 'comment')
 		callouts.forEach(c => {
+			c.hide()
+		})
+		
+		// Hide resolved comments in ALL modes (preview, reading, AND editing)
+		let resolvedCallouts = el.findAll(".callout").filter(c => c.getAttribute('data-callout')?.toLowerCase() === 'comment-resolved')
+		resolvedCallouts.forEach(c => {
 			c.hide()
 		})
 	}
@@ -110,12 +165,14 @@ export default class CommentPlugin extends Plugin {
 	// @param parentContentPos: the content position, useful in subcomments such that they refer to the correct position
 	findComments(file: TFile, fileContent: string, posOffset: EditorPosition, parentContentPos?: EditorPosition): Comment[] {
 		const comments: Comment[] = []
-		const regex = /> \[!comment\] (.+?)\n((?:> *.*\n?)+)/gi;
+		const regex = /> \[!(comment|comment-resolved)\] (.+?)\n((?:> *.*\n?)+)/gi;
 		const matches = fileContent.matchAll(regex)
 
 		for (const match of matches) {
-			// match[0] is the matched content, 1 is the first capture group, 2 is the second capture group, etc.
-			let name = match[1].trim()
+			// match[0] is the matched content, 1 is the callout type, 2 is the name/timestamp, 3 is the content
+			const calloutType = match[1]
+			const resolved = calloutType === 'comment-resolved'
+			let name = match[2].trim()
 			let timestamp
 			let contentPos: EditorPosition
 		
@@ -125,17 +182,40 @@ export default class CommentPlugin extends Plugin {
 			}
 
 			if (name.indexOf('| ') >= 0) {
-				// Don't split on separators to allow users to use different separators
-				const date = name.slice(name.indexOf("| ") + 2)
-				const day = parseInt(date.slice(0, 2))
-				const month = parseInt(date.slice(3, 5))
-				const year = parseInt(date.slice(6))
-				timestamp = new Date(year, month - 1, day)
+				// Extract the timestamp part after the pipe
+				const timestampStr = name.slice(name.indexOf("| ") + 2).trim()
+				
+				// Handle the new format: [[YYYY-MM-DD]] HH:mm
+				if (timestampStr.includes('[[') && timestampStr.includes(']]')) {
+					// Extract date from wiki-link format [[YYYY-MM-DD]]
+					const dateMatch = timestampStr.match(/\[\[(\d{4}-\d{2}-\d{2})\]\]/)
+					if (dateMatch) {
+						const datePart = dateMatch[1] // YYYY-MM-DD
+						const [year, month, day] = datePart.split('-').map(Number)
+						
+						// Check if there's a time part
+						const timeMatch = timestampStr.match(/\]\]\s+(\d{2}):(\d{2})/)
+						if (timeMatch) {
+							const [, hours, minutes] = timeMatch
+							timestamp = new Date(year, month - 1, day, parseInt(hours), parseInt(minutes))
+						} else {
+							timestamp = new Date(year, month - 1, day)
+						}
+					}
+				} else {
+					// Handle legacy format: DD/MM/YYYY
+					const dateParts = timestampStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/)
+					if (dateParts) {
+						const [, day, month, year] = dateParts
+						timestamp = new Date(parseInt(year), parseInt(month) - 1, parseInt(day))
+					}
+				}
+				
 				name = name.slice(0, name.indexOf('| '))
 			}
 
 			// Original full content, including subcomments
-			let content = match[2].split('\n')
+			let content = match[3].split('\n')
 				.map(line => line.replace(/^>/, '').trim())
 				.join('\n')
 
@@ -157,10 +237,63 @@ export default class CommentPlugin extends Plugin {
 			if (content.indexOf('>') >= 0)
 				content = content.slice(0, content.indexOf('>'))
 
-			comments.push({ name, content, startPos, endPos, children, contentPos, file, timestamp, childrenHidden: true })
+			comments.push({ name, content, startPos, endPos, children, contentPos, file, timestamp, childrenHidden: false, resolved })
 		}
 
 		return comments
+	}
+
+	async loadSettings() {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+	}
+
+	async saveSettings() {
+		await this.saveData(this.settings);
+	}
+
+	async toggleCommentResolution(comment: Comment) {
+		await this.app.vault.process(comment.file, content => {
+			const lines = content.split('\n')
+			const startLine = comment.startPos.line - 1 // Convert to 0-based index
+			
+			if (startLine >= 0 && startLine < lines.length) {
+				const currentLine = lines[startLine]
+				if (comment.resolved) {
+					// Change from resolved to active
+					lines[startLine] = currentLine.replace(/> \[!comment-resolved\]/, '> [!comment]')
+				} else {
+					// Change from active to resolved
+					lines[startLine] = currentLine.replace(/> \[!comment\]/, '> [!comment-resolved]')
+				}
+			}
+			
+			return lines.join('\n')
+		})
+	}
+}
+
+class SettingTab extends PluginSettingTab {
+	plugin: CommentPlugin;
+
+	constructor(app: App, plugin: CommentPlugin) {
+		super(app, plugin);
+		this.plugin = plugin;
+	}
+
+	display(): void {
+		const { containerEl } = this;
+		containerEl.empty();
+
+		new Setting(containerEl)
+			.setName('Username')
+			.setDesc('The name that will appear on your comments')
+			.addText(text => text
+				.setPlaceholder('Enter your username')
+				.setValue(this.plugin.settings.username)
+				.onChange(async (value) => {
+					this.plugin.settings.username = value;
+					await this.plugin.saveSettings();
+				}));
 	}
 }
 
@@ -168,6 +301,7 @@ class CommentView extends ItemView {
 	private comments: AllComments = {};
 	private commentsEl: HTMLElement
 	private plugin: CommentPlugin
+	private expandAllButton: HTMLElement
 
 	constructor(leaf: WorkspaceLeaf, plugin: CommentPlugin) {
 		super(leaf)
@@ -187,13 +321,20 @@ class CommentView extends ItemView {
 	}
 
 	setComments(comments: Comment[], fileName: string) {
-		this.comments[fileName]?.forEach(prevComment => {
-			const i = comments.findIndex(newComment => {
-				prevComment.startPos === newComment.startPos &&
-					prevComment.content === newComment.content
+		// If we have previous comments, try to preserve their childrenHidden state
+		if (this.comments[fileName]) {
+			this.comments[fileName].forEach(prevComment => {
+				// Try to find a matching comment by content and name first (more reliable than position)
+				const i = comments.findIndex(newComment => {
+					return prevComment.content === newComment.content &&
+						prevComment.name === newComment.name &&
+						prevComment.children.length === newComment.children.length
+				})
+				if (i >= 0) {
+					comments[i].childrenHidden = prevComment.childrenHidden
+				}
 			})
-			if (i >= 0) comments[i].childrenHidden = prevComment.childrenHidden
-		})
+		}
 
 		this.comments[fileName] = comments
 		this.renderComments(fileName)
@@ -202,71 +343,138 @@ class CommentView extends ItemView {
 	renderComments(fileName: string) {
 		this.commentsEl.empty()
 
-		this.comments[fileName].forEach((comment, index) => {
-			const commentContainer = this.commentsEl.createEl('div', {
-				cls: 'comment-item-container',
-			});
+		// Separate active and resolved comments
+		const activeComments = this.comments[fileName].filter(comment => !comment.resolved)
+		const resolvedComments = this.comments[fileName].filter(comment => comment.resolved)
 
-			const headerDiv = commentContainer.createEl('div', { cls: 'comment-header' })
-			headerDiv.createEl('b', {
-				text: `Line ${comment.endPos.line}`,
-				cls: 'comment-line'
+		// Update expand all button text based on current state
+		this.updateExpandAllButton(fileName)
+
+		// Render Active Comments section
+		if (activeComments.length > 0) {
+			const activeSection = this.commentsEl.createEl('div', { cls: 'comments-section' })
+			activeSection.createEl('h3', { text: 'Active Comments', cls: 'comments-section-title' })
+			
+			activeComments.forEach((comment, index) => {
+				this.renderSingleComment(comment, activeSection, fileName, false)
 			})
-			const minimizeEl = headerDiv.createEl('button', {
-				text: '+',
-				cls: 'comment-minimize',
+		}
+
+		// Render Resolved Comments section
+		if (resolvedComments.length > 0) {
+			const resolvedSection = this.commentsEl.createEl('div', { cls: 'comments-section' })
+			resolvedSection.createEl('h3', { text: 'Resolved Comments', cls: 'comments-section-title' })
+			
+			resolvedComments.forEach((comment, index) => {
+				this.renderSingleComment(comment, resolvedSection, fileName, true)
 			})
+		}
 
+		// Show a message if no comments
+		if (activeComments.length === 0 && resolvedComments.length === 0) {
+			this.commentsEl.createEl('p', { text: 'No comments found', cls: 'no-comments-message' })
+		}
+	}
 
-			headerDiv.createEl('b', {
-				cls: 'comment-item-date',
-				text: comment.timestamp?.toLocaleDateString()
+	private renderSingleComment(comment: Comment, container: HTMLElement, fileName: string, isResolved: boolean) {
+		const commentContainer = container.createEl('div', {
+			cls: 'comment-item-container',
+		});
+
+		const headerDiv = commentContainer.createEl('div', { cls: 'comment-header' })
+		
+		// Left side: Line number
+		headerDiv.createEl('b', {
+			text: `Line ${comment.endPos.line}`,
+			cls: 'comment-line'
+		})
+		
+		// Center: Author name and date/time
+		const metaDiv = headerDiv.createEl('div', { cls: 'comment-meta' })
+		metaDiv.createEl('span', {
+			text: comment.name,
+			cls: 'comment-author'
+		})
+		
+		const datetimeDiv = metaDiv.createEl('div', { cls: 'comment-datetime' })
+		if (comment.timestamp) {
+			datetimeDiv.createEl('span', {
+				text: comment.timestamp.toLocaleDateString(),
+				cls: 'comment-item-date'
 			})
-
-			const commentItem = commentContainer.createEl('div', {
-				cls: 'comment-item'
+			datetimeDiv.createEl('span', {
+				text: comment.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+				cls: 'comment-item-time'
 			})
+		}
+		
+		// Right side: Resolve/Unresolve button and Minimize button
+		const buttonContainer = headerDiv.createEl('div', { cls: 'comment-buttons' })
+		
+		// Add resolve/unresolve button (only for parent comments)
+		const resolveButton = buttonContainer.createEl('button', {
+			text: isResolved ? '↶' : '✓',
+			cls: 'comment-resolve-button',
+			attr: { title: isResolved ? 'Unresolve comment' : 'Resolve comment' }
+		})
+		
+		resolveButton.addEventListener('click', async () => {
+			await this.plugin.toggleCommentResolution(comment)
+		})
+		
+		// Minimize button
+		const minimizeEl = buttonContainer.createEl('button', {
+			text: '+',
+			cls: 'comment-minimize',
+		})
 
-			// Comment text
-			commentItem.createEl('p', {
-				text: `${comment.content}`,
-				cls: 'comment-item-text'
-			});
+		const commentItem = commentContainer.createEl('div', {
+			cls: 'comment-item'
+		})
 
+		// Comment text
+		commentItem.createEl('p', {
+			text: `${comment.content}`,
+			cls: 'comment-item-text'
+		});
 
-			commentItem.createEl('i', {
-				text: comment.name,
-				cls: 'comment-name'
-			})
-
-			if (comment.children.length > 0) {
-				const childrenCommentsEl = commentContainer.createEl('div', { cls: 'comment-children'})
-				// Initially hide the children
+		if (comment.children.length > 0) {
+			const childrenCommentsEl = commentContainer.createEl('div', { cls: 'comment-children'})
+			
+			// Set initial visibility based on the comment's childrenHidden state
+			if (comment.childrenHidden) {
 				hideChildren(childrenCommentsEl)
-
-				// Recursively render the comments
-				this.renderChildrenComments(comment.children, fileName, childrenCommentsEl)
-
-				// Minize the comment listener
-				minimizeEl?.addEventListener('click', () => {
-					if (isHidden(childrenCommentsEl)) {
-						showChildren(childrenCommentsEl)
-						minimizeEl!.innerText = '-'
-					} else {
-						hideChildren(childrenCommentsEl)
-						minimizeEl!.innerText = '+'
-					}
-				})
+				minimizeEl!.innerText = '+'
 			} else {
-				minimizeEl.hide()
-				minimizeEl.setAttr('hidden', true)
+				showChildren(childrenCommentsEl)
+				minimizeEl!.innerText = '-'
 			}
 
+			// Recursively render the comments
+			this.renderChildrenComments(comment.children, fileName, childrenCommentsEl)
 
-			// Add click event to navigate to source
-			commentItem.addEventListener('click', () => this.navigateToComment(comment, fileName));
-			commentItem.addEventListener('contextmenu', (evt) => this.showCommentOptions(evt, comment, false))
-		})
+			// Minize the comment listener
+			minimizeEl?.addEventListener('click', () => {
+				if (isHidden(childrenCommentsEl)) {
+					showChildren(childrenCommentsEl)
+					minimizeEl!.innerText = '-'
+					comment.childrenHidden = false
+				} else {
+					hideChildren(childrenCommentsEl)
+					minimizeEl!.innerText = '+'
+					comment.childrenHidden = true
+				}
+				// Update expand all button when individual comments are toggled
+				this.updateExpandAllButton(fileName)
+			})
+		} else {
+			minimizeEl.hide()
+			minimizeEl.setAttr('hidden', true)
+		}
+
+		// Add click event to navigate to source
+		commentItem.addEventListener('click', () => this.navigateToComment(comment, fileName));
+		commentItem.addEventListener('contextmenu', (evt) => this.showCommentOptions(evt, comment, false))
 	}
 
 	renderChildrenComments(comments: Comment[], fileName: string, element: HTMLElement) {
@@ -280,13 +488,30 @@ class CommentView extends ItemView {
 			commentContainer.createEl('div', { cls: 'comment-child-separator' })
 
 			const headerDiv = commentContainer.createEl('div', { cls: 'comment-header' })
-			// Empty div to retain layout
+			// Left side: Empty div to maintain layout
 			headerDiv.createEl('div')
 
-			headerDiv.createEl('b', {
-				cls: 'comment-child-date',
-				text: comment.timestamp ? comment.timestamp.toLocaleDateString() : '',
+			// Center: Author name and date/time
+			const metaDiv = headerDiv.createEl('div', { cls: 'comment-child-meta' })
+			metaDiv.createEl('span', {
+				text: comment.name,
+				cls: 'comment-child-author'
 			})
+			
+			const datetimeDiv = metaDiv.createEl('div', { cls: 'comment-datetime' })
+			if (comment.timestamp) {
+				datetimeDiv.createEl('span', {
+					text: comment.timestamp.toLocaleDateString(),
+					cls: 'comment-child-date'
+				})
+				datetimeDiv.createEl('span', {
+					text: comment.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+					cls: 'comment-child-time'
+				})
+			}
+			
+			// Right side: Empty div to maintain layout
+			headerDiv.createEl('div')
 
 			const commentItem = commentContainer.createEl('div', {
 				cls: 'comment-child'
@@ -298,16 +523,38 @@ class CommentView extends ItemView {
 				cls: 'comment-child-text'
 			});
 
-
-			commentItem.createEl('i', {
-				text: comment.name,
-				cls: 'comment-name'
-			})
-
 			// Add click event to navigate to source
 			commentItem.addEventListener('click', () => this.navigateToComment(comment, fileName));
 			commentItem.addEventListener('contextmenu', (evt) => this.showCommentOptions(evt, comment, true))
 		})
+	}
+
+	private updateExpandAllButton(fileName: string) {
+		if (!this.expandAllButton || !this.comments[fileName]) return
+		
+		// Check if all active comments with children are expanded (ignore resolved comments for expand/collapse)
+		const activeCommentsWithChildren = this.comments[fileName]
+			.filter(comment => !comment.resolved && comment.children.length > 0)
+		const allExpanded = activeCommentsWithChildren.every(comment => !comment.childrenHidden)
+		
+		this.expandAllButton.textContent = allExpanded ? 'Collapse All' : 'Expand All'
+	}
+
+	private toggleExpandAll(fileName: string) {
+		if (!this.comments[fileName]) return
+		
+		// Check current state - if any active comment is collapsed, expand all; otherwise collapse all
+		const activeCommentsWithChildren = this.comments[fileName]
+			.filter(comment => !comment.resolved && comment.children.length > 0)
+		const anyCollapsed = activeCommentsWithChildren.some(comment => comment.childrenHidden)
+		
+		// Set all active comments to the opposite state
+		activeCommentsWithChildren.forEach(comment => {
+			comment.childrenHidden = anyCollapsed ? false : true
+		})
+		
+		// Re-render the comments to apply the changes
+		this.renderComments(fileName)
 	}
 
 	private async navigateToComment(comment: Comment, fileName: string) {
@@ -316,10 +563,12 @@ class CommentView extends ItemView {
 		const file = this.app.workspace.getActiveFile()
 
 		if (editor && file) {
-			// Convert character position to line and character
-			editor.setCursor(comment.contentPos);
+			// Navigate to the end of the first line of the specific comment
+			const line = editor.getLine(comment.startPos.line);
+			const endOfLinePos = { line: comment.startPos.line, ch: line.length };
+			editor.setCursor(endOfLinePos);
 
-			editor.scrollIntoView({ from: comment.contentPos, to: comment.contentPos }, true);
+			editor.scrollIntoView({ from: endOfLinePos, to: endOfLinePos }, true);
 		}
 
 	}
@@ -341,6 +590,16 @@ class CommentView extends ItemView {
 				.onClick(() => this.addComment(comment))
 		})
 
+		// Add resolve/unresolve option only for parent comments (not subcomments)
+		if (!child) {
+			menu.addItem(item => {
+				item
+					.setTitle(comment.resolved ? "Unresolve comment" : "Resolve comment")
+					.setIcon(comment.resolved ? "rotate-ccw" : "check")
+					.onClick(async () => await this.plugin.toggleCommentResolution(comment))
+			})
+		}
+
 		menu.addItem(item => {
 			item
 				.setTitle(removeTitle)
@@ -351,13 +610,54 @@ class CommentView extends ItemView {
 		menu.showAtMouseEvent(evt)
 	}
 
-	private addComment(comment: Comment) {
-		this.app.vault.process(comment.file, content => {
+	private async addComment(comment: Comment) {
+		let newCommentLine = 0;
+		
+		await this.app.vault.process(comment.file, content => {
 			const lines = content.split('\n')
-			lines.splice(comment.endPos.line - 1, 0, "> ", `>> [!comment] NAME | ${new Date().toLocaleDateString()}`, ">> COMMENT")
-			content = lines.join('\n')
-			return content
+			let insertPosition = comment.endPos.line - 2
+			if (insertPosition < comment.startPos.line) {
+				insertPosition = comment.startPos.line
+			}
+			// Insert the subcomment lines
+			lines.splice(insertPosition + 1, 0, "> ")
+			lines.splice(insertPosition + 2, 0, `>> [!comment] ${this.plugin.settings.username} | ${this.plugin.getFormattedTimestamp()}`)
+			lines.splice(insertPosition + 3, 0, ">> ")
+			
+			// Store the line number where the comment content should be (1-based)
+			// The content line is at insertPosition + 3 (0-based), so +1 for 1-based = insertPosition + 4
+			newCommentLine = insertPosition + 4;
+			
+			return lines.join('\n')
 		})
+
+		// Add a small delay to ensure the file is saved and updated
+		setTimeout(async () => {
+			await this.navigateToNewComment(comment.file, newCommentLine);
+		}, 100);
+	}
+
+	private async navigateToNewComment(file: TFile, lineNumber: number) {
+		// Open the file
+		await this.app.workspace.openLinkText('', file.name);
+		
+		// Add a small delay to ensure the editor is ready
+		setTimeout(() => {
+			// Get the active editor
+			const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+			
+			if (editor) {
+				// Position cursor at the end of the comment content line (after ">> ")
+				const cursorPos = { line: lineNumber - 1, ch: 3 }; // -1 for 0-based indexing, ch: 3 for after ">> "
+				editor.setCursor(cursorPos);
+				
+				// Scroll to make sure the cursor is visible
+				editor.scrollIntoView({ from: cursorPos, to: cursorPos }, true);
+				
+				// Focus the editor
+				editor.focus();
+			}
+		}, 200);
 	}
 
 	private async removeComment(comment: Comment) {
@@ -369,15 +669,38 @@ class CommentView extends ItemView {
 			return content
 		})
 
-		this.comments[comment.file.name].remove(comment)
-		this.renderComments(comment.file.name)
+		// Remove the comment from our local state and re-render
+		// The setComments method will be called by the file modification listener
+		// which will preserve the childrenHidden state of remaining comments
 	}
 
 	async onOpen() {
 		const container = this.containerEl.children[1]
 		container.empty()
 		const commentContainer = container.createEl('div')
-		commentContainer.createEl('h2', { text: 'Comments', cls: 'comments-title' })
+		
+		// Header with title and expand all button
+		const headerContainer = commentContainer.createEl('div', { 
+			cls: 'comments-header-container',
+			attr: { style: 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;' }
+		})
+		headerContainer.createEl('h2', { text: 'Comments', cls: 'comments-title' })
+		
+		this.expandAllButton = headerContainer.createEl('button', {
+			text: 'Expand All',
+			cls: 'expand-all-button',
+			attr: { 
+				style: 'padding: 4px 8px; font-size: 12px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); border-radius: 3px; cursor: pointer;'
+			}
+		})
+		
+		this.expandAllButton.addEventListener('click', () => {
+			const activeFile = this.app.workspace.getActiveFile()
+			if (activeFile) {
+				this.toggleExpandAll(activeFile.name)
+			}
+		})
+		
 		this.commentsEl = commentContainer.createEl('div')
 
 		const activeFile = this.app.workspace.getActiveFile()
