@@ -28,7 +28,7 @@ const VIEW_TYPE_COMMENT = 'comment-view'
 
 export default class CommentPlugin extends Plugin {
 	settings: CommentPluginSettings;
-	debounceUpdate = debounce(this.updateComments, 500, true)
+	deounceUpdate = debounce(this.updateComments, 500, true)
 	modifyListener: EventRef
 	fileOpenListener: EventRef
 
@@ -74,7 +74,7 @@ export default class CommentPlugin extends Plugin {
 		)
 
 		this.modifyListener = this.app.vault.on('modify', file => {
-			this.debounceUpdate(file)
+			this.deounceUpdate(file)
 		})
 
 		this.fileOpenListener = this.app.workspace.on('file-open', file => {
@@ -270,6 +270,7 @@ class CommentView extends ItemView {
 	private comments: AllComments = {};
 	private commentsEl: HTMLElement
 	private plugin: CommentPlugin
+	private expandAllButton: HTMLElement
 
 	constructor(leaf: WorkspaceLeaf, plugin: CommentPlugin) {
 		super(leaf)
@@ -310,6 +311,9 @@ class CommentView extends ItemView {
 
 	renderComments(fileName: string) {
 		this.commentsEl.empty()
+
+		// Update expand all button text based on current state
+		this.updateExpandAllButton(fileName)
 
 		this.comments[fileName].forEach((comment, index) => {
 			const commentContainer = this.commentsEl.createEl('div', {
@@ -374,6 +378,8 @@ class CommentView extends ItemView {
 						minimizeEl!.innerText = '+'
 						comment.childrenHidden = true
 					}
+					// Update expand all button when individual comments are toggled
+					this.updateExpandAllButton(fileName)
 				})
 			} else {
 				minimizeEl.hide()
@@ -426,6 +432,32 @@ class CommentView extends ItemView {
 			commentItem.addEventListener('click', () => this.navigateToComment(comment, fileName));
 			commentItem.addEventListener('contextmenu', (evt) => this.showCommentOptions(evt, comment, true))
 		})
+	}
+
+	private updateExpandAllButton(fileName: string) {
+		if (!this.expandAllButton || !this.comments[fileName]) return
+		
+		// Check if all comments with children are expanded
+		const commentsWithChildren = this.comments[fileName].filter(comment => comment.children.length > 0)
+		const allExpanded = commentsWithChildren.every(comment => !comment.childrenHidden)
+		
+		this.expandAllButton.textContent = allExpanded ? 'Collapse All' : 'Expand All'
+	}
+
+	private toggleExpandAll(fileName: string) {
+		if (!this.comments[fileName]) return
+		
+		// Check current state - if any comment is collapsed, expand all; otherwise collapse all
+		const commentsWithChildren = this.comments[fileName].filter(comment => comment.children.length > 0)
+		const anyCollapsed = commentsWithChildren.some(comment => comment.childrenHidden)
+		
+		// Set all comments to the opposite state
+		commentsWithChildren.forEach(comment => {
+			comment.childrenHidden = anyCollapsed ? false : true
+		})
+		
+		// Re-render the comments to apply the changes
+		this.renderComments(fileName)
 	}
 
 	private async navigateToComment(comment: Comment, fileName: string) {
@@ -539,7 +571,29 @@ class CommentView extends ItemView {
 		const container = this.containerEl.children[1]
 		container.empty()
 		const commentContainer = container.createEl('div')
-		commentContainer.createEl('h2', { text: 'Comments', cls: 'comments-title' })
+		
+		// Header with title and expand all button
+		const headerContainer = commentContainer.createEl('div', { 
+			cls: 'comments-header-container',
+			attr: { style: 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;' }
+		})
+		headerContainer.createEl('h2', { text: 'Comments', cls: 'comments-title' })
+		
+		this.expandAllButton = headerContainer.createEl('button', {
+			text: 'Expand All',
+			cls: 'expand-all-button',
+			attr: { 
+				style: 'padding: 4px 8px; font-size: 12px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); border-radius: 3px; cursor: pointer;'
+			}
+		})
+		
+		this.expandAllButton.addEventListener('click', () => {
+			const activeFile = this.app.workspace.getActiveFile()
+			if (activeFile) {
+				this.toggleExpandAll(activeFile.name)
+			}
+		})
+		
 		this.commentsEl = commentContainer.createEl('div')
 
 		const activeFile = this.app.workspace.getActiveFile()
