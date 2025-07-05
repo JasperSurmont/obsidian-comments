@@ -29,7 +29,6 @@ const VIEW_TYPE_COMMENT = 'comment-view'
 export default class CommentPlugin extends Plugin {
 	settings: CommentPluginSettings;
 	debounceUpdate = debounce(this.updateComments, 500, true)
-	mdView: MarkdownView
 	modifyListener: EventRef
 	fileOpenListener: EventRef
 
@@ -39,8 +38,6 @@ export default class CommentPlugin extends Plugin {
 		this.addSettingTab(new SettingTab(this.app, this));
 
 		this.registerMarkdownPostProcessor(this.postProcessor.bind(this))
-
-		this.mdView = mdView
 		this.addRibbonIcon('message-circle', 'Comments', () => {
 			this.activateView();
 		});
@@ -62,8 +59,12 @@ export default class CommentPlugin extends Plugin {
 		this.addCommand({
 			id: 'add',
 			name: 'Add comment at the current cursor position',
-			editorCallback(editor) {
-				editor.replaceRange(`> [!comment] NAME | ${new Date().toLocaleDateString()}\n> COMMENT`, editor.getCursor('from'), editor.getCursor('to'))
+			editorCallback: (editor) => {
+				if (!editor) {
+					console.error("No active editor found");
+					return;
+				}
+				editor.replaceRange(`> [!comment] ${this.settings.username} | ${new Date().toLocaleDateString()}\n> COMMENT`, editor.getCursor('from'), editor.getCursor('to'))
 			},
 		})
 
@@ -94,7 +95,8 @@ export default class CommentPlugin extends Plugin {
 	}
 
 	postProcessor(el: HTMLElement, ctx: MarkdownPostProcessorContext) {
-		if (this.mdView.getMode() == 'source') return;
+		const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!mdView || mdView.getMode() == 'source') return;
 		let callouts = el.findAll(".callout").filter(c => c.getAttribute('data-callout')?.toLowerCase() === 'comment')
 		callouts.forEach(c => {
 			c.hide()
