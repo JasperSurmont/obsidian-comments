@@ -16,6 +16,12 @@ h2.comments-title {
     flex-direction: column;
 }
 
+.theme-light .comment-item-container {
+    border: solid rgba(0, 0, 0, 0.08);
+    border-width: 1px;
+    background-color: rgba(0, 0, 0, 0.02);
+}
+
 .comment-item {  
     display: flex;
     flex-direction: row;
@@ -40,6 +46,11 @@ h2.comments-title {
     border-width: 1px;
     
     /* padding: 5px; */
+}
+
+.theme-light .comment-minimize {
+    border: solid rgba(0, 0, 0, 0.08);
+    border-width: 1px;
 }
 
 .comment-line {
@@ -87,6 +98,11 @@ h2.comments-title {
     margin-bottom:5px;
 }
 
+.theme-light .comment-child-separator {
+    border-top: solid rgba(0,0,0, 0.06);
+    border-width: 1px;
+}
+
 .comment-child-date {
     font-size: .8em;
 }
@@ -103,7 +119,8 @@ h2.comments-title {
 
 .theme-light .callout[data-callout="comment"] {
     --callout-color: 0,0,0;
-    border: 3px solid rgba(0, 0, 0, 0.1);
+    border: 2px solid rgba(0, 0, 0, 0.05);
+    background-color: rgba(0, 0, 0, 0.01);
 }
 
 
@@ -112,7 +129,7 @@ h2.comments-title {
 }
 
 .theme-light .comment-item:hover {
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: rgba(0, 0, 0, 0.05);
 }
 
 .theme-dark .comment-child:hover {
@@ -120,7 +137,7 @@ h2.comments-title {
 }
 
 .theme-light .comment-child:hover {
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: rgba(0, 0, 0, 0.05);
 }
 
 @media print {
