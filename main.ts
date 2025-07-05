@@ -195,7 +195,7 @@ export default class CommentPlugin extends Plugin {
 			if (content.indexOf('>') >= 0)
 				content = content.slice(0, content.indexOf('>'))
 
-			comments.push({ name, content, startPos, endPos, children, contentPos, file, timestamp, childrenHidden: true })
+			comments.push({ name, content, startPos, endPos, children, contentPos, file, timestamp, childrenHidden: false })
 		}
 
 		return comments
@@ -258,13 +258,20 @@ class CommentView extends ItemView {
 	}
 
 	setComments(comments: Comment[], fileName: string) {
-		this.comments[fileName]?.forEach(prevComment => {
-			const i = comments.findIndex(newComment => {
-				prevComment.startPos === newComment.startPos &&
-					prevComment.content === newComment.content
+		// If we have previous comments, try to preserve their childrenHidden state
+		if (this.comments[fileName]) {
+			this.comments[fileName].forEach(prevComment => {
+				// Try to find a matching comment by content and name first (more reliable than position)
+				const i = comments.findIndex(newComment => {
+					return prevComment.content === newComment.content &&
+						prevComment.name === newComment.name &&
+						prevComment.children.length === newComment.children.length
+				})
+				if (i >= 0) {
+					comments[i].childrenHidden = prevComment.childrenHidden
+				}
 			})
-			if (i >= 0) comments[i].childrenHidden = prevComment.childrenHidden
-		})
+		}
 
 		this.comments[fileName] = comments
 		this.renderComments(fileName)
@@ -312,8 +319,15 @@ class CommentView extends ItemView {
 
 			if (comment.children.length > 0) {
 				const childrenCommentsEl = commentContainer.createEl('div', { cls: 'comment-children'})
-				// Initially hide the children
-				hideChildren(childrenCommentsEl)
+				
+				// Set initial visibility based on the comment's childrenHidden state
+				if (comment.childrenHidden) {
+					hideChildren(childrenCommentsEl)
+					minimizeEl!.innerText = '+'
+				} else {
+					showChildren(childrenCommentsEl)
+					minimizeEl!.innerText = '-'
+				}
 
 				// Recursively render the comments
 				this.renderChildrenComments(comment.children, fileName, childrenCommentsEl)
@@ -323,9 +337,11 @@ class CommentView extends ItemView {
 					if (isHidden(childrenCommentsEl)) {
 						showChildren(childrenCommentsEl)
 						minimizeEl!.innerText = '-'
+						comment.childrenHidden = false
 					} else {
 						hideChildren(childrenCommentsEl)
 						minimizeEl!.innerText = '+'
+						comment.childrenHidden = true
 					}
 				})
 			} else {
@@ -442,8 +458,9 @@ class CommentView extends ItemView {
 			return content
 		})
 
-		this.comments[comment.file.name].remove(comment)
-		this.renderComments(comment.file.name)
+		// Remove the comment from our local state and re-render
+		// The setComments method will be called by the file modification listener
+		// which will preserve the childrenHidden state of remaining comments
 	}
 
 	async onOpen() {
