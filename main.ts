@@ -1,4 +1,12 @@
-import { debounce, EditorPosition, EventRef, ItemView, MarkdownPostProcessorContext, MarkdownView, Menu, Plugin, TAbstractFile, TFile, WorkspaceLeaf } from 'obsidian';
+import { App, debounce, EditorPosition, EventRef, ItemView, MarkdownPostProcessorContext, MarkdownView, Menu, Plugin, TAbstractFile, TFile, WorkspaceLeaf, PluginSettingTab, Setting } from 'obsidian';
+
+interface CommentPluginSettings {
+	username: string;
+}
+
+const DEFAULT_SETTINGS: CommentPluginSettings = {
+	username: 'User'
+}
 
 interface Comment {
 	name: string
@@ -19,17 +27,16 @@ interface AllComments {
 const VIEW_TYPE_COMMENT = 'comment-view'
 
 export default class CommentPlugin extends Plugin {
+	settings: CommentPluginSettings;
 	debounceUpdate = debounce(this.updateComments, 500, true)
 	mdView: MarkdownView
 	modifyListener: EventRef
 	fileOpenListener: EventRef
 
 	async onload() {
-		const mdView = this.app.workspace.getActiveViewOfType(MarkdownView)
-		if (!mdView) {
-			console.error("Could not get active markdown view when setting up plugin")
-			return
-		}
+		await this.loadSettings();
+		
+		this.addSettingTab(new SettingTab(this.app, this));
 
 		this.registerMarkdownPostProcessor(this.postProcessor.bind(this))
 
@@ -59,6 +66,9 @@ export default class CommentPlugin extends Plugin {
 				editor.replaceRange(`> [!comment] NAME | ${new Date().toLocaleDateString()}\n> COMMENT`, editor.getCursor('from'), editor.getCursor('to'))
 			},
 		})
+
+		// Load settings
+		await this.loadSettings();
 	}
 
 	async activateView() {
@@ -161,6 +171,39 @@ export default class CommentPlugin extends Plugin {
 		}
 
 		return comments
+	}
+
+	async loadSettings() {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+	}
+
+	async saveSettings() {
+		await this.saveData(this.settings);
+	}
+}
+
+class SettingTab extends PluginSettingTab {
+	plugin: CommentPlugin;
+
+	constructor(app: App, plugin: CommentPlugin) {
+		super(app, plugin);
+		this.plugin = plugin;
+	}
+
+	display(): void {
+		const { containerEl } = this;
+		containerEl.empty();
+
+		new Setting(containerEl)
+			.setName('Username')
+			.setDesc('The name that will appear on your comments')
+			.addText(text => text
+				.setPlaceholder('Enter your username')
+				.setValue(this.plugin.settings.username)
+				.onChange(async (value) => {
+					this.plugin.settings.username = value;
+					await this.plugin.saveSettings();
+				}));
 	}
 }
 
@@ -354,7 +397,7 @@ class CommentView extends ItemView {
 	private addComment(comment: Comment) {
 		this.app.vault.process(comment.file, content => {
 			const lines = content.split('\n')
-			lines.splice(comment.endPos.line - 1, 0, "> ", `>> [!comment] NAME | ${new Date().toLocaleDateString()}`, ">> COMMENT")
+			lines.splice(comment.endPos.line - 1, 0, "> ", `>> [!comment] ${this.plugin.settings.username} | ${new Date().toLocaleDateString()}`, ">> COMMENT")
 			content = lines.join('\n')
 			return content
 		})
