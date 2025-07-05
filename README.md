@@ -1,24 +1,31 @@
 # Comments
 
-This plugin adds basic comment functionality so you can collaborate easier accross teams.
+This plugin adds comprehensive comment functionality to facilitate seamless collaboration across teams in Obsidian.
+
+![Obsidian Comments Enhanced Screenshot](images/comments-enhanced-demo.png)
 
 ## How it works
-A new callout is defined
+Comments are created using a specialised callout syntax with automatic timestamp integration:
 ```
-> [!comment] NAME | DATE
-> COMMENT
+> [!comment] NAME | [[DATE]] HH:mm
+> COMMENT CONTENT
 ```
 
-If you click the ribbon to open the plugin, a view will open that will show all comments within the file (like in Word). This will show the name, date, and content of the comment (specified like in the callout above).
+The plugin provides a dedicated sidebar view (accessible via the ribbon icon) that displays all comments within the current file, similar to Microsoft Word or Google Docs' comment system. The view shows organised comment threads with author names, timestamps, and full content.
 
-## Functionalities
-- Command to quickly add a comment (`CTRL + P` --> `Comments: Add new comment`)
-- Quickly remove comments by right clicking on the comment in the right view
-- Quickly add subcomments by right clicking on the comment in the right view
-- Quickly navigate to the place of the comment by left clicking the comment in the right view
-- Comments are hidden in reading mode and when exporting it to other documents (e.g. PDF)
+## Core Functionalities
 
-## Improvements
+- **Quick Comment Creation**: Add comments at cursor position (`Ctrl + P` → `Comments: Add comment at the current cursor position`)
+- **Smart Timestamps**: Automatic date/time formatting using daily notes plugin settings with wiki-link integration
+- **Comment Threading**: Hierarchical subcomments with visual indentation and organisation
+- **Comment Navigation**: Click any comment in the sidebar to jump directly to its location in the document
+- **Context Menu Actions**: Right-click comments for additional options (add subcomments, resolve, delete)
+- **Comment Resolution**: Mark comments as resolved/unresolved with visual indicators
+- **Smart Visibility**: Comments hidden in reading mode and when exporting (PDF, etc.)
 
-- [ ] Setting to choose hide behaviour
-- [ ] Setting for automatic name
+## Future Improvements
+
+### Planned Features
+- [ ] **Global Comment Finder**: Search and filter comments across all files in the vault
+- [ ] **@Mentions System**: Tag users with autocomplete and notification system
+- [ ] **Inline Text Comments**: Highlight and comment on specific text selections
