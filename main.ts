@@ -361,10 +361,12 @@ class CommentView extends ItemView {
 		const file = this.app.workspace.getActiveFile()
 
 		if (editor && file) {
-			// Convert character position to line and character
-			editor.setCursor(comment.contentPos);
+			// Navigate to the end of the first line of the specific comment
+			const line = editor.getLine(comment.startPos.line);
+			const endOfLinePos = { line: comment.startPos.line, ch: line.length };
+			editor.setCursor(endOfLinePos);
 
-			editor.scrollIntoView({ from: comment.contentPos, to: comment.contentPos }, true);
+			editor.scrollIntoView({ from: endOfLinePos, to: endOfLinePos }, true);
 		}
 
 	}
